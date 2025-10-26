@@ -1,0 +1,2 @@
+#pragma once
+#define VOCAB_PATH "@VOCAB_PATH@"
