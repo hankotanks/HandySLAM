@@ -16,10 +16,8 @@
         exit(1); \
     }
 
-#define TESTER std::cout << "Hello, world!" << std::endl
-
 namespace HandySLAM {
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene) : Dataloader(pathScene) {
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, bool generateSettings) : Dataloader(pathScene) {
         // initialize frame index
         frameIdx_ = 0;
         // rgb.mp4
@@ -32,28 +30,28 @@ namespace HandySLAM {
             exit(1);
         }
         fps_  = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FPS));
-        wRGB_ = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
-        hRGB_ = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
-    TESTER;
+        std::size_t w, h;
+        w = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
+        h = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
+        sizeOriginal_ = cv::Size(w, h);
+        sizeInternal_ = sizeOriginal_;
         // depth/*
         pathDepth_ = pathScene / "depth";
         ASSERT_PATH_EXISTS(pathDepth_);
-    TESTER;
         // odometry.csv
         pathOdom_ = pathScene / "odometry.csv";
         ASSERT_PATH_EXISTS(pathOdom_);
-        readerOdom_ = std::ifstream(pathOdom_);
+        readerOdom_ = std::ifstream(pathOdom_, std::ios::binary);
         if(!readerOdom_.is_open()) {
             std::cout << "Failed to open [" << pathOdom_ << "]." << std::endl;
             exit(1);
         }
         std::string temp;
         std::getline(readerOdom_, temp);
-    TESTER;
         // imu.csv
         pathIMU_ = pathScene / "imu.csv";
         ASSERT_PATH_EXISTS(pathIMU_);
-        readerIMU_ = std::ifstream(pathIMU_);
+        readerIMU_ = std::ifstream(pathIMU_, std::ios::binary);
         if(!readerIMU_.is_open()) {
             std::cout << "Failed to open [" << pathIMU_ << "]." << std::endl;
             exit(1);
@@ -61,14 +59,23 @@ namespace HandySLAM {
         std::getline(readerIMU_, temp);
         // frequency
         freq_ = DataloaderStray::getFrequencyIMU();
-    TESTER;
+        // break early if settings don't need to be generated
+        if(!generateSettings) return; 
         // camera_matrix.csv
         std::filesystem::path pathCameraMatrix(pathScene / "camera_matrix.csv");
         ASSERT_PATH_EXISTS(pathCameraMatrix);
-    TESTER;
         // generate iphone.yaml
         DataloaderStray::generateSettingsFile(pathCameraMatrix);
-    TESTER;
+    }
+
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene) : DataloaderStray(pathScene, true) { /* STUB */ }
+
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, cv::Size sizeInternal) : DataloaderStray(pathScene, false) {
+        sizeInternal_ = sizeInternal;
+        // generate settings
+        std::filesystem::path pathCameraMatrix(pathScene / "camera_matrix.csv");
+        ASSERT_PATH_EXISTS(pathCameraMatrix);
+        DataloaderStray::generateSettingsFile(pathCameraMatrix);
     }
 
     DataloaderStray::~DataloaderStray() {
@@ -94,7 +101,7 @@ namespace HandySLAM {
             std::cout << "Failed to get depth map on frame " << frameIdx_ << std::endl;
             return std::nullopt;
         }
-        cv::resize(*depthmap, *depthmap, curr.im.size());
+        cv::resize(*depthmap, *depthmap, sizeInternal_);
         curr.depthmap = std::move(*depthmap);
         // timestamp
         std::optional<double> timestamp = DataloaderStray::nextTimestamp();
@@ -104,21 +111,7 @@ namespace HandySLAM {
         }
         curr.timestamp = *timestamp;
         // vImuMeas
-        curr.vImuMeas = nextIMU(curr.timestamp);
-        // save the previous frame's carry over
-        std::optional<ORB_SLAM3::IMU::Point> temp = carryOverSensorData_;
-        // remove the final exceeding IMU data point
-        if(!curr.vImuMeas.empty()) {
-            carryOverSensorData_ = curr.vImuMeas.back();
-            curr.vImuMeas.pop_back();
-        }
-        // add the carry over from last frame
-        if(temp) curr.vImuMeas.insert(curr.vImuMeas.cbegin(), *temp);
-        // only return frames with valid IMU data
-        if(curr.vImuMeas.empty() && frameIdx_ > 0) {
-            std::cout << "No IMU measurements found for frame " << frameIdx_ << std::endl;
-            return std::nullopt;
-        }
+        curr.vImuMeas = DataloaderStray::nextIMU(curr.timestamp);
         // return frame
         frameIdx_++;
         return curr;
@@ -148,7 +141,7 @@ namespace HandySLAM {
         }
         std::stringstream lineStream(line);
         std::string elem;
-        if(std::getline(lineStream, elem, ',')) return std::stod(elem);
+        if(std::getline(lineStream, elem, ',')) return static_cast<double>(std::stold(elem));
         std::cout << "Failed to get timestamp." << std::endl;
         return std::nullopt;
     }
@@ -162,34 +155,43 @@ namespace HandySLAM {
         // loop until we catch up
         double timestampCurr;
         do {
+            // save position
+            fpos<__mbstate_t> pos = readerIMU_.tellg();
+            // get line
             std::string line;
             if(!std::getline(readerIMU_, line)) {
                 std::cout << "Failed to get IMU frame data." << std::endl;
-                return vImuMeas;
+                exit(1);
             }
             // read the current timestamp
             std::stringstream lineStream(line);
             std::string elem;
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem, ',')) exit(1);
             timestampCurr = static_cast<double>(std::stold(elem));
+            // check if we need to break
+            if(timestampCurr >= timestamp) {
+                readerIMU_.clear();
+                readerIMU_.seekg(pos);
+                return vImuMeas;
+            }
             // read accelerometry and gyro data
             float acc_x, acc_y, acc_z, ang_vel_x, ang_vel_y, ang_vel_z;
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem, ',')) exit(1);
             acc_x = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem, ',')) exit(1);
             acc_y = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
-            acc_z = std::stold(elem);
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem, ',')) exit(1);
+            acc_z = static_cast<float>(std::stold(elem));
+            if(!std::getline(lineStream, elem, ',')) exit(1);
             ang_vel_x = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem, ',')) exit(1);
             ang_vel_y = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!std::getline(lineStream, elem)) exit(1);
             ang_vel_z = static_cast<float>(std::stold(elem));
             // add the new point
             vImuMeas.emplace_back(acc_x, acc_y, acc_z, ang_vel_x, ang_vel_y, ang_vel_z, timestampCurr);
-        } while(timestampCurr < timestamp);
-        return vImuMeas;
+        } while(true);
+        return std::vector<ORB_SLAM3::IMU::Point>{};
     }
 
     double DataloaderStray::getFrequencyIMU() {
@@ -200,11 +202,11 @@ namespace HandySLAM {
         std::optional<double> t1 = DataloaderStray::nextTimestampGeneric(readerIMU_);
         std::optional<double> t2 = DataloaderStray::nextTimestampGeneric(readerIMU_);
         // reset stream back to where it was
-        readerOdom_.clear();
-        readerOdom_.seekg(pos);
+        readerIMU_.clear();
+        readerIMU_.seekg(pos);
         if(!t1 || !t2) exit(1);
         // return frequency
-        return 1.0 / (*t2 - *t1);
+        return std::floor(1.0 / (*t2 - *t1));
     }
 
     void DataloaderStray::generateSettingsFile(const std::filesystem::path& pathCameraMatrix) {
@@ -283,12 +285,16 @@ namespace HandySLAM {
         writer << "Camera1.k2: 0.0" << std::endl;
         writer << "Camera1.p1: 0.0" << std::endl;
         writer << "Camera1.p2: 0.0" << std::endl;
-        writer << "Camera.width: " << wRGB_ << std::endl;
-        writer << "Camera.height: " << hRGB_ << std::endl;
+        writer << "Camera.width: " << sizeOriginal_.width << std::endl;
+        writer << "Camera.height: " << sizeOriginal_.height << std::endl;
+        writer << "Camera.newWidth: " << sizeInternal_.width << std::endl;
+        writer << "Camera.newHeight: " << sizeInternal_.height << std::endl;
         writer << "Camera.fps: " << fps_ << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
         writer << "Stereo.ThDepth: 40.0" << std::endl;
         writer << "Stereo.b: 0.0745" << std::endl;
+        writer << "RGBD.MinDepth: 0.1" << std::endl;
+        writer << "RGBD.MaxDepth: 5.0" << std::endl;
         writer << "RGBD.DepthMapFactor: 1000.0" << std::endl;
         // IMU
         writer << "IMU.T_b_c1: !!opencv-matrix" << std::endl;
@@ -300,17 +306,17 @@ namespace HandySLAM {
         writer << "          0.0, 0.0, 1.0, 0.0," << std::endl;
         writer << "          0.0, 0.0, 0.0, 1.0]" << std::endl;
         writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
-        writer << "IMU.NoiseGyro: 1e-8 " << std::endl;
-        writer << "IMU.NoiseAcc:  1e-8" << std::endl;
-        writer << "IMU.GyroWalk:  1e-8" << std::endl;
-        writer << "IMU.AccWalk:   1e-8 " << std::endl;
+        writer << "IMU.NoiseGyro: 2e-2 " << std::endl; // TODO: Consider these values
+        writer << "IMU.NoiseAcc:  2e-2" << std::endl;  // TODO: Consider these values
+        writer << "IMU.GyroWalk:  4e-5" << std::endl;  // TODO: Consider these values
+        writer << "IMU.AccWalk:   2e-3 " << std::endl; // TODO: Consider these values
         writer << "IMU.Frequency: " << freq_ << std::endl;
         // generic parameters
         writer << "ORBextractor.nFeatures: 1250" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;
         writer << "ORBextractor.nLevels: 8" << std::endl;
-        writer << "ORBextractor.iniThFAST: 20" << std::endl;
-        writer << "ORBextractor.minThFAST: 7" << std::endl;
+        writer << "ORBextractor.iniThFAST: 12" << std::endl;
+        writer << "ORBextractor.minThFAST: 4" << std::endl;
         writer << "Viewer.KeyFrameSize: 0.05" << std::endl;
         writer << "Viewer.KeyFrameLineWidth: 1.0" << std::endl;
         writer << "Viewer.GraphLineWidth: 0.9" << std::endl;
