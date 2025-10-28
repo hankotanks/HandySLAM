@@ -90,6 +90,7 @@ namespace HandySLAM {
 
     const std::optional<Frame> DataloaderStray::next() {
         Frame curr;
+        curr.index = frameIdx_;
         // read RGB frame
         if(!cap_.read(curr.im)) {
             std::cout << "Failed to get RGB imagery on frame " << frameIdx_ << std::endl;
@@ -261,9 +262,11 @@ namespace HandySLAM {
         // row: 2, col: 2
         if(!std::getline(lineStream, elem)) exit(1);
         double scalar = static_cast<double>(std::stold(elem));
-        // adjust focal point by scalar
+        // adjust by scalar (although should always be 1.0)
         fx /= scalar;
         fy /= scalar;
+        cx /= scalar;
+        cy /= scalar;
         // create a temporary file
         pathSettings_ = std::filesystem::temp_directory_path() / "iphone.yaml";
         std::ofstream writer(pathSettings_);
@@ -285,9 +288,9 @@ namespace HandySLAM {
         writer << "Camera1.k2: 0.0" << std::endl;
         writer << "Camera1.p1: 0.0" << std::endl;
         writer << "Camera1.p2: 0.0" << std::endl;
-        writer << "Camera.width: " << sizeOriginal_.width << std::endl;
-        writer << "Camera.height: " << sizeOriginal_.height << std::endl;
-        writer << "Camera.newWidth: " << sizeInternal_.width << std::endl;
+        writer << "Camera.width: "     << sizeOriginal_.width << std::endl;
+        writer << "Camera.height: "    << sizeOriginal_.height << std::endl;
+        writer << "Camera.newWidth: "  << sizeInternal_.width << std::endl;
         writer << "Camera.newHeight: " << sizeInternal_.height << std::endl;
         writer << "Camera.fps: " << fps_ << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
@@ -301,22 +304,22 @@ namespace HandySLAM {
         writer << "   rows: 4" << std::endl;
         writer << "   cols: 4" << std::endl;
         writer << "   dt: f" << std::endl;
-        writer << "   data: [1.0, 0.0, 0.0, 0.0," << std::endl;
-        writer << "          0.0, 1.0, 0.0, 0.0," << std::endl;
-        writer << "          0.0, 0.0, 1.0, 0.0," << std::endl;
-        writer << "          0.0, 0.0, 0.0, 1.0]" << std::endl;
+        writer << "   data: [1.0,  0.0,  0.0, 0.0," << std::endl;
+        writer << "          0.0, -1.0,  0.0, 0.0," << std::endl;
+        writer << "          0.0,  0.0, -1.0, 0.0," << std::endl;
+        writer << "          0.0,  0.0,  0.0, 1.0]" << std::endl;
         writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
-        writer << "IMU.NoiseGyro: 2e-2 " << std::endl; // TODO: Consider these values
-        writer << "IMU.NoiseAcc:  2e-2" << std::endl;  // TODO: Consider these values
-        writer << "IMU.GyroWalk:  4e-5" << std::endl;  // TODO: Consider these values
-        writer << "IMU.AccWalk:   2e-3 " << std::endl; // TODO: Consider these values
+        writer << "IMU.NoiseGyro: 5.1e-3" << std::endl;  // TODO: Consider these values
+        writer << "IMU.NoiseAcc:  1.4e-2" << std::endl;  // TODO: Consider these values
+        writer << "IMU.GyroWalk:  5.0e-4" << std::endl;  // TODO: Consider these values
+        writer << "IMU.AccWalk:   2.5e-3" << std::endl;  // TODO: Consider these values
         writer << "IMU.Frequency: " << freq_ << std::endl;
         // generic parameters
         writer << "ORBextractor.nFeatures: 1250" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;
         writer << "ORBextractor.nLevels: 8" << std::endl;
-        writer << "ORBextractor.iniThFAST: 12" << std::endl;
-        writer << "ORBextractor.minThFAST: 4" << std::endl;
+        writer << "ORBextractor.iniThFAST: 20" << std::endl;
+        writer << "ORBextractor.minThFAST: 7" << std::endl;
         writer << "Viewer.KeyFrameSize: 0.05" << std::endl;
         writer << "Viewer.KeyFrameLineWidth: 1.0" << std::endl;
         writer << "Viewer.GraphLineWidth: 0.9" << std::endl;
