@@ -17,10 +17,10 @@ namespace HandySLAM {
         const std::optional<Frame> next() final override;
         const std::filesystem::path& pathSettings() final override;
     private:
-        DataloaderStray(const std::filesystem::path& pathScene, bool generateSettings);
+        DataloaderStray(const std::filesystem::path& pathScene, std::optional<cv::Size> sizeInternal);
     private:
         void generateSettingsFile(const std::filesystem::path& pathCameraMatrix);
-        double getFrequencyIMU();
+        const std::optional<Frame> nextInternal();
         std::optional<double> nextTimestampGeneric(std::ifstream& reader);
         std::optional<double> nextTimestamp();
         std::optional<cv::Mat> nextDepthFrame();
@@ -28,6 +28,7 @@ namespace HandySLAM {
     private:
         cv::Size sizeInternal_;
         std::size_t frameIdx_;
+        std::size_t frameCount_;
         std::filesystem::path pathSettings_;
         std::filesystem::path pathRGB_;
         std::filesystem::path pathDepth_;
@@ -39,6 +40,6 @@ namespace HandySLAM {
         std::ifstream readerOdom_;
         std::ifstream readerIMU_;
         double freq_;
-        std::optional<ORB_SLAM3::IMU::Point> carryOverSensorData_;
+        std::optional<Frame> carryOverFrame_;
     };
 }

@@ -11,22 +11,54 @@
 
 #include "Dataloader.h"
 
+template <typename... Args>
+void log_err(Args&&... args) {
+    std::cout << "[ERROR]";
+    int dummy[] = { 0, ((std::cout << std::forward<Args>(args) << ' '), 0) ... };
+    (void) dummy;
+    std::cout << std::endl;
+}
+
 #define ASSERT_PATH_EXISTS(path_) if(!std::filesystem::exists(path_)) { \
-        std::cout << "Path does not exist [" << path_ << "]." << std::endl; \
+        log_err("Path does not exist [", path_, "]."); \
         exit(1); \
     }
 
+namespace {
+    bool readLine(std::ifstream& reader, std::stringstream& stream) {
+        std::string line;
+        if(!std::getline(reader, line)) {
+            log_err("Failed to read line.");
+            return false;
+        }
+        stream = std::move(std::stringstream(line));
+        stream.imbue(std::locale::classic());
+        return true;
+    }
+
+    template <typename T>
+    bool parse(std::stringstream& stream, T& val, bool final) {
+        std::string elem;
+        if(!std::getline(stream, elem, final ? '\n' : ',')) {
+            log_err("Failed to parse value.");
+            return false;
+        }
+        std::stringstream temp(elem);
+        temp.imbue(std::locale::classic());
+        temp >> val;
+        return !stream.fail();
+    }
+} // private scope
+
 namespace HandySLAM {
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, bool generateSettings) : Dataloader(pathScene) {
-        // initialize frame index
-        frameIdx_ = 0;
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, std::optional<cv::Size> sizeInternal) : Dataloader(pathScene) {
         // rgb.mp4
         pathRGB_ = pathScene / "rgb.mp4";
         ASSERT_PATH_EXISTS(pathRGB_);
         // open RGB video capture
         cap_ = cv::VideoCapture(pathRGB_);
         if(!cap_.isOpened()) {
-            std::cout << "Failed to open [" << pathRGB_ << "]." << std::endl;
+            log_err("Failed to open ", pathRGB_, "].");
             exit(1);
         }
         fps_  = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FPS));
@@ -34,7 +66,10 @@ namespace HandySLAM {
         w = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_WIDTH));
         h = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_HEIGHT));
         sizeOriginal_ = cv::Size(w, h);
-        sizeInternal_ = sizeOriginal_;
+        sizeInternal_ = sizeInternal.value_or(sizeOriginal_);
+        // initialize frame index and count
+        frameIdx_ = 0;
+        frameCount_ = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_COUNT));
         // depth/*
         pathDepth_ = pathScene / "depth";
         ASSERT_PATH_EXISTS(pathDepth_);
@@ -43,7 +78,7 @@ namespace HandySLAM {
         ASSERT_PATH_EXISTS(pathOdom_);
         readerOdom_ = std::ifstream(pathOdom_, std::ios::binary);
         if(!readerOdom_.is_open()) {
-            std::cout << "Failed to open [" << pathOdom_ << "]." << std::endl;
+            log_err("Failed to open ", pathOdom_, "].");
             exit(1);
         }
         std::string temp;
@@ -53,30 +88,47 @@ namespace HandySLAM {
         ASSERT_PATH_EXISTS(pathIMU_);
         readerIMU_ = std::ifstream(pathIMU_, std::ios::binary);
         if(!readerIMU_.is_open()) {
-            std::cout << "Failed to open [" << pathIMU_ << "]." << std::endl;
+            log_err("Failed to open ", pathIMU_, "].");
             exit(1);
         }
         std::getline(readerIMU_, temp);
         // frequency
-        freq_ = DataloaderStray::getFrequencyIMU();
-        // break early if settings don't need to be generated
-        if(!generateSettings) return; 
+        auto pos = readerIMU_.tellg();
+        if(pos == -1) {
+            log_err("Failed to calculate IMU frequency.");
+            exit(1);
+        }
+        // get two adjacent timestamps
+        std::optional<double> t1 = DataloaderStray::nextTimestampGeneric(readerIMU_);
+        std::optional<double> t2 = DataloaderStray::nextTimestampGeneric(readerIMU_);
+        // reset stream back to where it was
+        readerIMU_.clear();
+        readerIMU_.seekg(pos);
+        if(!t1 || !t2) {
+            log_err("Failed to calculate IMU frequency.");
+            exit(1);
+        }
+        // set frequency
+        freq_ = std::floor(1.0 / (*t2 - *t1));
         // camera_matrix.csv
         std::filesystem::path pathCameraMatrix(pathScene / "camera_matrix.csv");
         ASSERT_PATH_EXISTS(pathCameraMatrix);
         // generate iphone.yaml
         DataloaderStray::generateSettingsFile(pathCameraMatrix);
+        // skip initial frames if IMU data is missing
+        std::size_t advanced = 0;
+        while((carryOverFrame_ = DataloaderStray::nextInternal())) {
+            if(carryOverFrame_ && !carryOverFrame_->vImuMeas.empty()) break;
+            advanced++;
+        }
+        std::cout << "Advanced " << advanced << " frames to the start of IMU measurements." << std::endl;
     }
 
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene) : DataloaderStray(pathScene, true) { /* STUB */ }
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene) : 
+        DataloaderStray(pathScene, std::nullopt) { /* STUB */ }
 
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, cv::Size sizeInternal) : DataloaderStray(pathScene, false) {
-        sizeInternal_ = sizeInternal;
-        // generate settings
-        std::filesystem::path pathCameraMatrix(pathScene / "camera_matrix.csv");
-        ASSERT_PATH_EXISTS(pathCameraMatrix);
-        DataloaderStray::generateSettingsFile(pathCameraMatrix);
-    }
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, cv::Size sizeInternal) : 
+        DataloaderStray(pathScene, std::optional(sizeInternal)) { /* STUB */ }
 
     DataloaderStray::~DataloaderStray() {
         cap_.release();
@@ -88,26 +140,25 @@ namespace HandySLAM {
         return pathSettings_;
     }
 
-    const std::optional<Frame> DataloaderStray::next() {
+    // this internal version permits empty IMU measurements
+    const std::optional<Frame> DataloaderStray::nextInternal() {
         Frame curr;
         curr.index = frameIdx_;
+        if(curr.index + 1 >= frameCount_) return std::nullopt;
         // read RGB frame
         if(!cap_.read(curr.im)) {
-            std::cout << "Failed to get RGB imagery on frame " << frameIdx_ << std::endl;
+            log_err("Failed to get RGB imagery on frame", frameIdx_, ".");
             return std::nullopt;
         }
         // depth frame
         std::optional<cv::Mat> depthmap = DataloaderStray::nextDepthFrame();
-        if(!depthmap) {
-            std::cout << "Failed to get depth map on frame " << frameIdx_ << std::endl;
-            return std::nullopt;
-        }
+        if(!depthmap) return std::nullopt;
         cv::resize(*depthmap, *depthmap, sizeInternal_);
         curr.depthmap = std::move(*depthmap);
         // timestamp
         std::optional<double> timestamp = DataloaderStray::nextTimestamp();
         if(!timestamp) {
-            std::cout << "Failed to get timestamp on frame " << frameIdx_ << std::endl;
+            log_err("Failed to get timestamp on frame", frameIdx_, ".");
             return std::nullopt;
         }
         curr.timestamp = *timestamp;
@@ -116,6 +167,17 @@ namespace HandySLAM {
         // return frame
         frameIdx_++;
         return curr;
+    }
+
+    const std::optional<Frame> DataloaderStray::next() {
+        if(carryOverFrame_) {
+            std::optional<Frame> carryOverFrame = carryOverFrame_;
+            carryOverFrame_.reset();
+            return carryOverFrame;
+        }
+        std::optional<Frame> frame = DataloaderStray::nextInternal();
+        if(frame && frame->vImuMeas.empty()) return std::nullopt;
+        return frame;
     }
 
     std::optional<cv::Mat> DataloaderStray::nextDepthFrame() {
@@ -128,23 +190,20 @@ namespace HandySLAM {
         // read depth map
         cv::Mat depthmap = cv::imread(pathDepthFrame, cv::IMREAD_UNCHANGED);
         if(depthmap.data == nullptr) {
-            std::cout << "Failed to read depth frame." << std::endl;
+            log_err("Failed to get depth map on frame", frameIdx_, ".");
             return std::nullopt;
         }
         return depthmap;
     }
 
     std::optional<double> DataloaderStray::nextTimestampGeneric(std::ifstream& reader) {
-        std::string line;
-        if(!std::getline(reader, line)) {
-            std::cout << "Failed to get timestamp." << std::endl;
+        std::stringstream stream;
+        double timestamp;
+        if(!readLine(reader, stream) || !parse<double>(stream, timestamp, false)) {
+            log_err("Failed to get timestamp.");
             return std::nullopt;
         }
-        std::stringstream lineStream(line);
-        std::string elem;
-        if(std::getline(lineStream, elem, ',')) return static_cast<double>(std::stold(elem));
-        std::cout << "Failed to get timestamp." << std::endl;
-        return std::nullopt;
+        return timestamp;
     }
 
     std::optional<double> DataloaderStray::nextTimestamp() {
@@ -154,21 +213,19 @@ namespace HandySLAM {
     std::vector<ORB_SLAM3::IMU::Point> DataloaderStray::nextIMU(double timestamp) {
         std::vector<ORB_SLAM3::IMU::Point> vImuMeas;
         // loop until we catch up
-        double timestampCurr;
         do {
             // save position
-            fpos<__mbstate_t> pos = readerIMU_.tellg();
+            auto pos = readerIMU_.tellg();
             // get line
-            std::string line;
-            if(!std::getline(readerIMU_, line)) {
-                std::cout << "Failed to get IMU frame data." << std::endl;
-                exit(1);
+            std::stringstream stream;
+            if(!readLine(readerIMU_, stream)) {
+                log_err("Failed to get IMU data.");
+                return vImuMeas;
             }
             // read the current timestamp
-            std::stringstream lineStream(line);
-            std::string elem;
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            timestampCurr = static_cast<double>(std::stold(elem));
+            double timestampCurr;
+            if(!parse<double>(stream, timestampCurr, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
             // check if we need to break
             if(timestampCurr >= timestamp) {
                 readerIMU_.clear();
@@ -176,92 +233,60 @@ namespace HandySLAM {
                 return vImuMeas;
             }
             // read accelerometry and gyro data
-            float acc_x, acc_y, acc_z, ang_vel_x, ang_vel_y, ang_vel_z;
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            acc_x = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            acc_y = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            acc_z = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            ang_vel_x = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem, ',')) exit(1);
-            ang_vel_y = static_cast<float>(std::stold(elem));
-            if(!std::getline(lineStream, elem)) exit(1);
-            ang_vel_z = static_cast<float>(std::stold(elem));
+            cv::Point3f acc, gyro;
+            if(!parse<float>(stream, acc.x, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, acc.y, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, acc.z, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, gyro.x, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, gyro.y, false)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, gyro.z, true)) 
+                return std::vector<ORB_SLAM3::IMU::Point>{};
             // add the new point
-            vImuMeas.emplace_back(acc_x, acc_y, acc_z, ang_vel_x, ang_vel_y, ang_vel_z, timestampCurr);
+            vImuMeas.emplace_back(acc, gyro, timestampCurr);
         } while(true);
         return std::vector<ORB_SLAM3::IMU::Point>{};
-    }
-
-    double DataloaderStray::getFrequencyIMU() {
-        // save current position
-        auto pos = readerIMU_.tellg();
-        if(pos == -1) exit(1);
-        // get two adjacent timestamps
-        std::optional<double> t1 = DataloaderStray::nextTimestampGeneric(readerIMU_);
-        std::optional<double> t2 = DataloaderStray::nextTimestampGeneric(readerIMU_);
-        // reset stream back to where it was
-        readerIMU_.clear();
-        readerIMU_.seekg(pos);
-        if(!t1 || !t2) exit(1);
-        // return frequency
-        return std::floor(1.0 / (*t2 - *t1));
     }
 
     void DataloaderStray::generateSettingsFile(const std::filesystem::path& pathCameraMatrix) {
         // open the input stream
         std::ifstream reader(pathCameraMatrix);
         if(!reader.is_open()) {
-            std::cout << "Failed to open [" << pathCameraMatrix << "]." << std::endl;
+            log_err("Failed to open [", pathCameraMatrix, "].");
             exit(1);
         }
         // get first row
-        std::string line;
-        if(!std::getline(reader, line)) {
-            std::cout << "Failed to get IMU frame data." << std::endl;
-            exit(1);
-        }
-        std::stringstream lineStream(line);
-        std::string elem;
+        std::stringstream stream;
+        if(!readLine(reader, stream)) exit(1);
         // read the relevant intrinsics
-        double fx, fy, cx, cy;
+        double fx, fy, cx, cy, temp;
         // row: 0, col: 0
-        if(!std::getline(lineStream, elem, ',')) exit(1);
-        fx = static_cast<double>(std::stold(elem));
+        if(!parse<double>(stream, fx, false)) exit(1);
         // row: 0, col: 1
-        if(!std::getline(lineStream, elem, ',')) exit(1);
+        if(!parse<double>(stream, temp, false)) exit(1);
         // row: 0, col: 2
-        if(!std::getline(lineStream, elem)) exit(1);
-        cx = static_cast<double>(std::stold(elem));
+        if(!parse<double>(stream, cx, true)) exit(1);
         // get second row
-        if(!std::getline(reader, line)) {
-            std::cout << "Failed to get IMU frame data." << std::endl;
-            exit(1);
-        }
-        lineStream = std::move(std::stringstream(line));
+        if(!readLine(reader, stream)) exit(1);
         // row: 1, col: 0
-        if(!std::getline(lineStream, elem, ',')) exit(1);
+        if(!parse<double>(stream, temp, false)) exit(1);
         // row: 1, col: 1
-        if(!std::getline(lineStream, elem, ',')) exit(1);
-        fy = static_cast<double>(std::stold(elem));
+        if(!parse<double>(stream, fy, false)) exit(1);
         // row: 1, col: 2
-        if(!std::getline(lineStream, elem)) exit(1);
-        cy = static_cast<double>(std::stold(elem));
+        if(!parse<double>(stream, cy, true)) exit(1);
         // get third row
-        if(!std::getline(reader, line)) {
-            std::cout << "Failed to get IMU frame data." << std::endl;
-            exit(1);
-        }
-        lineStream = std::move(std::stringstream(line));
+        if(!readLine(reader, stream)) exit(1);
         // row: 2, col: 0
-        if(!std::getline(lineStream, elem, ',')) exit(1);
+        if(!parse<double>(stream, temp, false)) exit(1);
         // row: 2, col: 1
-        if(!std::getline(lineStream, elem, ',')) exit(1);
+        if(!parse<double>(stream, temp, false)) exit(1);
         // row: 2, col: 2
-        if(!std::getline(lineStream, elem)) exit(1);
-        double scalar = static_cast<double>(std::stold(elem));
+        double scalar;
+        if(!parse<double>(stream, scalar, false)) exit(1);
         // adjust by scalar (although should always be 1.0)
         fx /= scalar;
         fy /= scalar;
@@ -271,7 +296,7 @@ namespace HandySLAM {
         pathSettings_ = std::filesystem::temp_directory_path() / "iphone.yaml";
         std::ofstream writer(pathSettings_);
         if(!writer) {
-            std::cout << "Failed to write to [" << pathSettings_ << "]." << std::endl;
+            log_err("Failed to write to [", pathSettings_, "].");
             exit(1);
         }
         // write YAML settings to file
