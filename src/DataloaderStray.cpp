@@ -5,15 +5,15 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 
 #include <opencv2/core/mat.hpp>
-#include <sstream>
 
 #include "Dataloader.h"
 
 template <typename... Args>
 void log_err(Args&&... args) {
-    std::cout << "[ERROR]";
+    std::cout << "[ERROR] ";
     int dummy[] = { 0, ((std::cout << std::forward<Args>(args) << ' '), 0) ... };
     (void) dummy;
     std::cout << std::endl;
@@ -99,8 +99,8 @@ namespace HandySLAM {
             exit(1);
         }
         // get two adjacent timestamps
-        std::optional<double> t1 = DataloaderStray::nextTimestampGeneric(readerIMU_);
-        std::optional<double> t2 = DataloaderStray::nextTimestampGeneric(readerIMU_);
+        std::optional<double> t1 = DataloaderStray::timestampGeneric(readerIMU_);
+        std::optional<double> t2 = DataloaderStray::timestampGeneric(readerIMU_);
         // reset stream back to where it was
         readerIMU_.clear();
         readerIMU_.seekg(pos);
@@ -146,24 +146,20 @@ namespace HandySLAM {
         curr.index = frameIdx_;
         if(curr.index + 1 >= frameCount_) return std::nullopt;
         // read RGB frame
-        if(!cap_.read(curr.im)) {
-            log_err("Failed to get RGB imagery on frame", frameIdx_, ".");
-            return std::nullopt;
-        }
+        std::optional<cv::Mat> im = DataloaderStray::im();
+        if(!im) return std::nullopt;
+        curr.im = std::move(*im);
         // depth frame
-        std::optional<cv::Mat> depthmap = DataloaderStray::nextDepthFrame();
+        std::optional<cv::Mat> depthmap = DataloaderStray::depthmap();
         if(!depthmap) return std::nullopt;
         cv::resize(*depthmap, *depthmap, sizeInternal_);
         curr.depthmap = std::move(*depthmap);
         // timestamp
-        std::optional<double> timestamp = DataloaderStray::nextTimestamp();
-        if(!timestamp) {
-            log_err("Failed to get timestamp on frame", frameIdx_, ".");
-            return std::nullopt;
-        }
+        std::optional<double> timestamp = DataloaderStray::timestamp();
+        if(!timestamp) return std::nullopt;
         curr.timestamp = *timestamp;
         // vImuMeas
-        curr.vImuMeas = DataloaderStray::nextIMU(curr.timestamp);
+        curr.vImuMeas = DataloaderStray::vImuMeas(curr.timestamp);
         // return frame
         frameIdx_++;
         return curr;
@@ -171,7 +167,7 @@ namespace HandySLAM {
 
     const std::optional<Frame> DataloaderStray::next() {
         if(carryOverFrame_) {
-            std::optional<Frame> carryOverFrame = carryOverFrame_;
+            Frame carryOverFrame = std::move(*carryOverFrame_);
             carryOverFrame_.reset();
             return carryOverFrame;
         }
@@ -180,7 +176,16 @@ namespace HandySLAM {
         return frame;
     }
 
-    std::optional<cv::Mat> DataloaderStray::nextDepthFrame() {
+    std::optional<cv::Mat> DataloaderStray::im() {
+        cv::Mat im;
+        if(!cap_.read(im)) {
+            log_err("Failed to get RGB imagery on frame", frameIdx_, ".");
+            return std::nullopt;
+        }
+        return im;
+    }
+
+    std::optional<cv::Mat> DataloaderStray::depthmap() {
         // build filename
         std::ostringstream fname;
         fname << std::setw(6) << std::setfill('0') << frameIdx_ << ".png";
@@ -196,7 +201,7 @@ namespace HandySLAM {
         return depthmap;
     }
 
-    std::optional<double> DataloaderStray::nextTimestampGeneric(std::ifstream& reader) {
+    std::optional<double> DataloaderStray::timestampGeneric(std::ifstream& reader) {
         std::stringstream stream;
         double timestamp;
         if(!readLine(reader, stream) || !parse<double>(stream, timestamp, false)) {
@@ -206,11 +211,11 @@ namespace HandySLAM {
         return timestamp;
     }
 
-    std::optional<double> DataloaderStray::nextTimestamp() {
-        return DataloaderStray::nextTimestampGeneric(readerOdom_);
+    std::optional<double> DataloaderStray::timestamp() {
+        return DataloaderStray::timestampGeneric(readerOdom_);
     }
 
-    std::vector<ORB_SLAM3::IMU::Point> DataloaderStray::nextIMU(double timestamp) {
+    std::vector<ORB_SLAM3::IMU::Point> DataloaderStray::vImuMeas(double timestamp) {
         std::vector<ORB_SLAM3::IMU::Point> vImuMeas;
         // loop until we catch up
         do {
@@ -227,7 +232,7 @@ namespace HandySLAM {
             if(!parse<double>(stream, timestampCurr, false)) 
                 return std::vector<ORB_SLAM3::IMU::Point>{};
             // check if we need to break
-            if(timestampCurr >= timestamp) {
+            if(timestampCurr > timestamp) {
                 readerIMU_.clear();
                 readerIMU_.seekg(pos);
                 return vImuMeas;
@@ -329,15 +334,23 @@ namespace HandySLAM {
         writer << "   rows: 4" << std::endl;
         writer << "   cols: 4" << std::endl;
         writer << "   dt: f" << std::endl;
+#if 0
         writer << "   data: [1.0,  0.0,  0.0, 0.0," << std::endl;
-        writer << "          0.0, -1.0,  0.0, 0.0," << std::endl;
-        writer << "          0.0,  0.0, -1.0, 0.0," << std::endl;
+        writer << "          0.0,  1.0,  0.0, 0.0," << std::endl;
+        writer << "          0.0,  0.0,  1.0, 0.0," << std::endl;
         writer << "          0.0,  0.0,  0.0, 1.0]" << std::endl;
+#else
+        // temporary data matrix for imu-to-camera calibration
+        writer << "   data: [ 0.01313266, -0.99986337,  0.01003839,  0.05819003," << std::endl;
+        writer << "          -0.99973402, -0.01293929,  0.01909088,  0.08413739," << std::endl;
+        writer << "          -0.01895838, -0.01028643, -0.99976736, -0.22258164," << std::endl;
+        writer << "           0.0       ,  0.0       ,  0.0       ,  1.0       ]" << std::endl;
+#endif
         writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
-        writer << "IMU.NoiseGyro: 5.1e-3" << std::endl;  // TODO: Consider these values
-        writer << "IMU.NoiseAcc:  1.4e-2" << std::endl;  // TODO: Consider these values
-        writer << "IMU.GyroWalk:  5.0e-4" << std::endl;  // TODO: Consider these values
-        writer << "IMU.AccWalk:   2.5e-3" << std::endl;  // TODO: Consider these values
+        writer << "IMU.NoiseGyro: 5.1e-3" << std::endl;  // TODO: Add the platform as a configuration option
+        writer << "IMU.NoiseAcc:  1.4e-2" << std::endl;  // TODO: Add the platform as a configuration option
+        writer << "IMU.GyroWalk:  5.0e-4" << std::endl;  // TODO: Add the platform as a configuration option
+        writer << "IMU.AccWalk:   2.5e-3" << std::endl;  // TODO: Add the platform as a configuration option
         writer << "IMU.Frequency: " << freq_ << std::endl;
         // generic parameters
         writer << "ORBextractor.nFeatures: 1250" << std::endl;
@@ -359,3 +372,52 @@ namespace HandySLAM {
         writer.close();
     }
 }
+
+#if 0
+    std::size_t accumulated = 0;
+    std::vector<ORB_SLAM3::IMU::Point> vImuMeasPre = std::move(carryOverFrame_->vImuMeas);
+    while((carryOverFrame_ = DataloaderStray::nextInternal()) && (vImuMeasPre.back().t - vImuMeasPre.front().t) < vImuMeasPreThreshold) {
+        vImuMeasPre.insert(vImuMeasPre.end(), carryOverFrame_->vImuMeas.begin(), carryOverFrame_->vImuMeas.end());
+        accumulated++;
+    }
+    carryOverFrame_->vImuMeas.insert(carryOverFrame_->vImuMeas.begin(), vImuMeasPre.begin(), vImuMeasPre.end());
+    std::optional<ORB_SLAM3::IMU::Point> vImuMeasOvershoot = DataloaderStray::vImuMeasOvershoot();
+    if(!vImuMeasOvershoot) {
+        log_err("Failed to read past the first preintegration frame.");
+        exit(1);
+    }
+    carryOverFrame_->vImuMeas.push_back(*vImuMeasOvershoot);
+    std::cout << std::fixed << std::setprecision(4) << carryOverFrame_->timestamp << ", " << carryOverFrame_->vImuMeas.front().t << ", " << carryOverFrame_->vImuMeas.back().t << std::endl;
+    for(ORB_SLAM3::IMU::Point& pt : carryOverFrame_->vImuMeas) {
+        std::cout << std::fixed << std::setprecision(4) << pt.t << ", ";
+    }
+    std::cout << std::endl;
+    std::cout << "Accumulated IMU measurements from " << accumulated << " frames for preintegration." << std::endl;
+
+    std::optional<ORB_SLAM3::IMU::Point> DataloaderStray::vImuMeasOvershoot() {
+        // save position
+        auto pos = readerIMU_.tellg();
+        // get line
+        std::stringstream stream;
+        if(!readLine(readerIMU_, stream)) {
+            log_err("Failed to get IMU data.");
+            return std::nullopt;
+        }
+        // read the current timestamp
+        double timestampCurr;
+        if(!parse<double>(stream, timestampCurr, false)) return std::nullopt;
+        // read accelerometry and gyro data
+        cv::Point3f acc, gyro;
+        if(!parse<float>(stream, acc.x, false))  return std::nullopt;
+        if(!parse<float>(stream, acc.y, false))  return std::nullopt;
+        if(!parse<float>(stream, acc.z, false))  return std::nullopt;
+        if(!parse<float>(stream, gyro.x, false)) return std::nullopt;
+        if(!parse<float>(stream, gyro.y, false)) return std::nullopt;
+        if(!parse<float>(stream, gyro.z, true))  return std::nullopt;
+        // add the new point
+        readerIMU_.clear();
+        readerIMU_.seekg(pos);
+        // return
+        return ORB_SLAM3::IMU::Point(acc, gyro, timestampCurr);
+    }
+#endif

@@ -21,19 +21,16 @@ int main(int argc, char* argv[]) {
         std::cout << "Must provide scene path." << std::endl;
         exit(1);
     }
-
-    std::locale::global(std::locale::classic());
-
+    // parse scene path
     std::filesystem::path pathScene(argv[1]);
     ASSERT_PATH_EXISTS(pathScene);
-
+    // load scene data
     HandySLAM::DataloaderStray data(pathScene, SIZE_INTERNAL);
     {
         ORB_SLAM3::System SLAM(VOCAB_PATH, data.pathSettings(), ORB_SLAM3::System::IMU_RGBD);
-
+        // iterate through frames
         std::size_t maps = 0;
         std::size_t stateCurr, statePrev = 0;
-        std::optional<HandySLAM::Frame> frameCurr;
         std::optional<ORB_SLAM3::IMU::Point> meas;
         for(HandySLAM::Frame& frameCurr : data) {
             // sort IMU measurements
@@ -54,14 +51,13 @@ int main(int argc, char* argv[]) {
             // store this frame's final IMU reading for the next iteration
             if(!frameCurr.vImuMeas.empty()) meas = frameCurr.vImuMeas.back();
         }
-
-        std::cout << "Generated " << ((maps == 0) ? 1 : maps) << " maps." << std::endl;
+        // wait for input before closing the visualizer
+        std::cout << "Generated " << (maps ? maps : 1) << " maps." << std::endl;
         std::cout << "Press ENTER to close viewer." << std::endl;
         std::cin.get();
-
+        // shutdown the SLAM system
         SLAM.Shutdown();
         while(!SLAM.isShutDown()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-
     return 0;
 }

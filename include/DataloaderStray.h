@@ -21,10 +21,11 @@ namespace HandySLAM {
     private:
         void generateSettingsFile(const std::filesystem::path& pathCameraMatrix);
         const std::optional<Frame> nextInternal();
-        std::optional<double> nextTimestampGeneric(std::ifstream& reader);
-        std::optional<double> nextTimestamp();
-        std::optional<cv::Mat> nextDepthFrame();
-        std::vector<ORB_SLAM3::IMU::Point> nextIMU(double timestamp);
+        std::optional<double> timestampGeneric(std::ifstream& reader);
+        std::optional<double> timestamp();
+        std::optional<cv::Mat> im();
+        std::optional<cv::Mat> depthmap();
+        std::vector<ORB_SLAM3::IMU::Point> vImuMeas(double timestamp);
     private:
         cv::Size sizeInternal_;
         std::size_t frameIdx_;

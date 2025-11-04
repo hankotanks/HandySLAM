@@ -11,7 +11,8 @@ namespace HandySLAM {
     struct Frame {
         std::size_t index;
         double timestamp;
-        cv::Mat im, depthmap;
+        cv::Mat im;
+        cv::Mat depthmap;
         std::vector<ORB_SLAM3::IMU::Point> vImuMeas;
     };
 
