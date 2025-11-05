@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # make sure sufficient arguments are provided
-if [ "$#" -ne 9 ]; then
-    echo "Usage: $0 <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk> <update_rate>"
+if [ "$#" -ne 10 ]; then
+    echo "Usage: $0 <profile_name> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk> <update_rate>"
     exit 1
 fi
 
@@ -19,52 +19,52 @@ if [ ! -e "/HandySLAM" ]; then
 fi
 
 # validate target arguments
-if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+if ! [[ "$2" =~ ^[0-9]+$ ]]; then
     echo "Error: <tagCols> must be an integer."
     exit 1
 fi
-if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+if ! [[ "$3" =~ ^[0-9]+$ ]]; then
     echo "Error: <tagRows> must be an integer."
     exit 1
 fi
-if ! [[ "$3" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$4" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSize> must be a number."
     exit 1
 fi
-if ! [[ "$4" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSpacing> must be a number."
     exit 1
 fi
-if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "${10}" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <update_rate> must be a number."
     exit 1
 fi
 
-echo "tagCols: $1"
-echo "tagRows: $2"
-echo "tagSize: $3"
-echo "tagSpacing: $4"
-echo "accelerometer_noise_density: $5"
-echo "accelerometer_random_walk: $6"
-echo "gyroscope_noise_density: $7"
-echo "gyroscope_random_walk: $8"
-echo "update_rate: $9"
+echo "tagCols: $2"
+echo "tagRows: $3"
+echo "tagSize: $4"
+echo "tagSpacing: $5"
+echo "accelerometer_noise_density: $6"
+echo "accelerometer_random_walk: $7"
+echo "gyroscope_noise_density: $8"
+echo "gyroscope_random_walk: $9"
+echo "update_rate: ${10}"
 
 PATH_RGB="/data/rgb.mp4"
 PATH_ODOMETRY="/data/odometry.csv"
@@ -82,12 +82,12 @@ echo "Info: Created temporary data folder: $PATH_TEMP."
 
 # output path
 PATH_TEMP_RESULTS="/results"
-PATH_TEMP_BAG="$PATH_TEMP_RESULTS/temp.bag"
+PATH_TEMP_BAG="$PATH_TEMP_RESULTS/$1.bag"
 
 # ensure temporary folders are cleaned up
 cleanup() {
     rm -rf "$PATH_TEMP"
-    rm -rf "$PATH_TEMP_RESULTS/temp.bag"
+    rm -rf "$PATH_TEMP_BAG"
 }
 trap cleanup EXIT
 
@@ -112,10 +112,10 @@ echo "Info: Resolution of RGB imagery: [${CAMERA_W}, ${CAMERA_H}]."
 PATH_TEMP_TARGET="$PATH_TEMP/aprilgrid.yaml"
 cat <<EOF > "$PATH_TEMP_TARGET"
 target_type: 'aprilgrid'
-tagCols: $1
-tagRows: $2
-tagSize: $3
-tagSpacing: $4
+tagCols: $2
+tagRows: $3
+tagSize: $4
+tagSpacing: $5
 EOF
 echo "Info: Finished writing target configuration to $PATH_TEMP_TARGET."
 
@@ -139,11 +139,11 @@ PATH_TEMP_IMU_CALIB="$PATH_TEMP/imu.yaml"
 cat <<EOF > "$PATH_TEMP_IMU_CALIB"
 sensor_model: "imu"
 rostopic: "/imu"
-update_rate: $9
-accelerometer_noise_density: $5
-accelerometer_random_walk: $6
-gyroscope_noise_density: $7
-gyroscope_random_walk: $8
+update_rate: ${10}
+accelerometer_noise_density: $6
+accelerometer_random_walk: $7
+gyroscope_noise_density: $8
+gyroscope_random_walk: $9
 EOF
 echo "Info: Finished writing IMU calibration to $PATH_TEMP_IMU_CALIB."
 

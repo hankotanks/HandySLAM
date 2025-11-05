@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# make sure scene_path is provided
-if [ "$#" -ne 10 ]; then
-    echo "Usage: $0 <scene_path> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk> <update_rate>"
+# make sure sufficient arguments are provided
+if [ "$#" -ne 11 ]; then
+    echo "Usage: $0 <scene_path> <profile_name> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk>"
     exit 1
 fi
 
@@ -45,54 +45,62 @@ if [ ! -f "$PATH_CAMERA_MATRIX" ]; then
 fi
 
 # validate target arguments
-if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+if ! [[ "$3" =~ ^[0-9]+$ ]]; then
     echo "Error: <tagCols> must be an integer."
     exit 1
 fi
-if ! [[ "$3" =~ ^[0-9]+$ ]]; then
+if ! [[ "$4" =~ ^[0-9]+$ ]]; then
     echo "Error: <tagRows> must be an integer."
     exit 1
 fi
-if ! [[ "$4" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSize> must be a number."
     exit 1
 fi
-if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSpacing> must be a number."
     exit 1
 fi
-if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
+if ! [[ "${10}" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "${10}" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
-    echo "Error: <update_rate> must be a number."
-    exit 1
-fi
+
+PROJECT_ROOT=$(dirname "$(dirname "$(realpath "$0")")")
+
+# calculate average imu freq
+IMU_DT=$(awk -F',' 'NR>1 {dt = $1 - prev; if(dt>0) print dt; prev = $1} NR==1 {prev=$1}' "$PATH_IMU")
+IMU_DT_MEDIAN=$(echo "$IMU_DT" | sort -n | awk '{a[NR]=$1} END{if(NR%2==1){print a[(NR+1)/2]} else{print (a[NR/2]+a[NR/2+1])/2}}')
+IMU_FREQ=$(awk -v dt="$IMU_DT_MEDIAN" 'BEGIN {printf "%.2f", 1/dt}')
 
 # make result folder
-PATH_TEMP_RESULTS=$(mktemp -d "/tmp/${SCENE_NAME}_XXXX_results")
+PATH_TEMP_RESULTS="$PROJECT_ROOT/profiles/$2"
+if [ -e "$PATH_TEMP_RESULTS" ]; then
+    echo "Info: Removing previous profile: $2."
+    rm -rf "$PATH_TEMP_RESULTS"
+fi
+mkdir -p "$PATH_TEMP_RESULTS"
 if [ ! -e "$PATH_TEMP_RESULTS" ]; then
-    echo "Error: Unable to create temporary results folder: $PATH_TEMP_RESULTS."
+    echo "Error: Unable to create profile folder: $PATH_TEMP_RESULTS."
     exit 1
 fi
-echo "Info: Created temporary results folder: $PATH_TEMP_RESULTS."
+echo "Info: Created temporary profile folder: $PATH_TEMP_RESULTS."
 
 # enter the container
 echo "Info: Entering docker container."
-PROJECT_ROOT=$(dirname "$(dirname "$(realpath "$0")")")
+xhost +SI:localuser:$(whoami)
 docker run --rm -it \
     -u $(id -u):$(id -g) \
     -e "DISPLAY=$DISPLAY" \
@@ -106,7 +114,7 @@ docker run --rm -it \
         export KALIBR_MANUAL_FOCAL_LENGTH_INIT=1
         cd $WORKSPACE
         chmod +x /HandySLAM/scripts/util/calibrate_with_aprilgrid_docker.sh
-        /HandySLAM/scripts/util/calibrate_with_aprilgrid_docker.sh '"$2 $3 $4 $5 $6 $7 $8 $9 ${10}"'
+        /HandySLAM/scripts/util/calibrate_with_aprilgrid_docker.sh '"$2 $3 $4 $5 $6 $7 $8 $9 ${10} $IMU_FREQ"'
         EXIT_CODE=$?
         echo "Calibration finished with exit code $EXIT_CODE"
         exit $EXIT_CODE
@@ -119,8 +127,3 @@ if [ $EXIT_CODE -ne 0 ]; then
     exit $EXIT_CODE
 fi
 echo "Info: Closing docker container."
-
-# TODO: Read temp-camchain-imucam.yaml and create a profile file in HandySLAM/profiles
-# the user should additionally pass in a profile name
-# DataloaderStray must also be provided a profile, which it will load and use
-# to generate the settings file

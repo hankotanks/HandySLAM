@@ -20,7 +20,7 @@ namespace HandySLAM {
     public:
         Dataloader(const std::filesystem::path& pathScene) : pathScene_(pathScene) { /* STUB */ };
         virtual const std::optional<Frame> next() = 0;
-        virtual const std::filesystem::path& pathSettings() = 0;
+        virtual const double fps() const = 0;
     protected:
         std::filesystem::path pathScene_;
     public:
