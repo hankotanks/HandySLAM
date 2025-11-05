@@ -27,31 +27,31 @@ if ! [[ "$2" =~ ^[0-9]+$ ]]; then
     echo "Error: <tagRows> must be an integer."
     exit 1
 fi
-if ! [[ "$3" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$3" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSize> must be a number."
     exit 1
 fi
-if ! [[ "$4" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$4" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <tagSpacing> must be a number."
     exit 1
 fi
-if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <accelerometer_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$7" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_noise_density> must be a number."
     exit 1
 fi
-if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$8" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <update_rate> must be a number."
     exit 1
 fi
@@ -80,11 +80,16 @@ if [ ! -e "$PATH_TEMP" ]; then
 fi
 echo "Info: Created temporary data folder: $PATH_TEMP."
 
-# ensure temporary folders are cleaned up
-trap 'rm -rf "$PATH_TEMP"' EXIT
-
 # output path
 PATH_TEMP_RESULTS="/results"
+PATH_TEMP_BAG="$PATH_TEMP_RESULTS/temp.bag"
+
+# ensure temporary folders are cleaned up
+cleanup() {
+    rm -rf "$PATH_TEMP"
+    rm -rf "$PATH_TEMP_RESULTS/temp.bag"
+}
+trap cleanup EXIT
 
 # extract frames
 PATH_TEMP_FRAMES="$PATH_TEMP/cam0"
@@ -171,7 +176,6 @@ source "devel/setup.bash"
 echo "Info: Ran Kalibr's setup.bash."
 
 # create rosbag
-PATH_TEMP_BAG="$PATH_TEMP_RESULTS/temp.bag"
 rosrun kalibr kalibr_bagcreater \
     --folder $PATH_TEMP \
     --output-bag $PATH_TEMP_BAG
@@ -190,7 +194,8 @@ rosrun kalibr kalibr_calibrate_imu_camera \
     --cam $PATH_TEMP_CAMERA_INTRINSICS \
     --imu $PATH_TEMP_IMU_CALIB \
     --imu-models calibrated \
-    --target $PATH_TEMP_TARGET
+    --target $PATH_TEMP_TARGET \
+    --dont-show-report
 
 # check success
 EXIT_CODE=$?
