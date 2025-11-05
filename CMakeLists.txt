@@ -14,11 +14,13 @@ find_package(OpenCV 4.4 REQUIRED)
 
 add_executable(HandySLAM 
     src/main.cpp
-    src/DataloaderStray.cpp)
+    src/DataloaderStray.cpp
+    src/Profile.cpp)
 
 target_compile_definitions(HandySLAM PRIVATE PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
 set(VOCAB_PATH "${PROJECT_SOURCE_DIR}/ORB_SLAM3/Vocabulary/ORBvoc.txt")
+set(PROJECT_ROOT "${PROJECT_SOURCE_DIR}")
 configure_file(Config.h.in ${PROJECT_BINARY_DIR}/Config.h @ONLY)
 
 target_include_directories(HandySLAM 

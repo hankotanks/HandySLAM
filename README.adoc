@@ -7,3 +7,12 @@ git clone https://github.com/hankotanks/HandySLAM.git
 chmod +x build.sh
 ./build.sh
 ----
+
+== Generating Calibration Profile
+[source,sh]
+----
+#!/bin/bash
+chmod +x ./scripts/calibration_start.sh
+./scripts/calibration_start.sh ~/Documents/1db4db4bec_calib/1db4db4bec/
+source ../HandySLAM/scripts/calibration_with_aprilgrid.sh 6 6 0.039 0.009 0.014 0.0025 0.0051 0.0005 100
+----
