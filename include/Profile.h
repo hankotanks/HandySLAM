@@ -9,13 +9,11 @@
 namespace HandySLAM {
     class Profile {
     public:
-        std::filesystem::path pathSettings;
-    public:
-        Profile(const std::string& profile, std::size_t fps);
-        Profile(const std::string& profile, std::size_t fps, cv::Size sizeInternal);
+        Profile(const std::string& profile, cv::Size sizeDepthmap, std::size_t fps);
+        const std::string strSettingsFile() const; 
     private:
-        Profile(const std::string& profile, std::size_t fps, std::optional<cv::Size> sizeInternal);
     private:
+        std::string profile_;
         Eigen::Matrix4d imu2cam_;
         double noiseGyr_;
         double noiseAcc_;
@@ -24,7 +22,7 @@ namespace HandySLAM {
         double updateRate_;
         double fx_, fy_, cx_, cy_;
         std::size_t fps_;
-        cv::Size sizeOriginal_;
-        cv::Size sizeInternal_;
+        cv::Size sizeIm_;
+        cv::Size sizeDepthmap_;
     };
 }

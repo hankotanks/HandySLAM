@@ -141,6 +141,11 @@ namespace HandySLAM {
         return fps_;
     }
 
+    const cv::Size DataloaderStray::sizeDepthmap() const {
+        cv::Mat depthmap = cv::imread(pathDepth_ / "000000.png", cv::IMREAD_UNCHANGED);
+        return cv::Size(depthmap.cols, depthmap.rows);
+    }
+
     std::optional<cv::Mat> DataloaderStray::im() {
         cv::Mat im;
         if(!cap_.read(im)) {

@@ -15,6 +15,7 @@ namespace HandySLAM {
         ~DataloaderStray();
         const std::optional<Frame> next() final override;
         const double fps() const final override;
+        const cv::Size sizeDepthmap() const final override;
     private:
         const std::optional<Frame> nextInternal();
         std::optional<double> timestampGeneric(std::ifstream& reader);

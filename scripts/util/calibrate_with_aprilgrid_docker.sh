@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # make sure sufficient arguments are provided
-if [ "$#" -ne 10 ]; then
-    echo "Usage: $0 <profile_name> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk> <update_rate>"
+if [ "$#" -ne 9 ]; then
+    echo "Usage: $0 <profile_name> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk>"
     exit 1
 fi
 
@@ -51,28 +51,43 @@ if ! [[ "$9" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
     echo "Error: <gyroscope_random_walk> must be a number."
     exit 1
 fi
-if ! [[ "${10}" =~ ^[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$ ]]; then
-    echo "Error: <update_rate> must be a number."
-    exit 1
-fi
 
-echo "tagCols: $2"
-echo "tagRows: $3"
-echo "tagSize: $4"
-echo "tagSpacing: $5"
-echo "accelerometer_noise_density: $6"
-echo "accelerometer_random_walk: $7"
-echo "gyroscope_noise_density: $8"
-echo "gyroscope_random_walk: $9"
-echo "update_rate: ${10}"
+# run ros setup script
+PATH_ROS_SETUP=$(find /opt -name setup.bash 2>/dev/null | grep ros)
+source "$PATH_ROS_SETUP"
+echo "Info: Ran $PATH_ROS_SETUP."
+
+# run kalibr setup script
+source "devel/setup.bash"
+echo "Info: Ran Kalibr's setup.bash."
+
+tagCols=$(awk -v v="$2" 'BEGIN { printf "%d\n", v }')
+tagRows=$(awk -v v="$3" 'BEGIN { printf "%d\n", v }')
+tagSize=$(awk -v v="$4" 'BEGIN { printf "%f\n", v }')
+tagSpacing=$(awk -v v="$5" 'BEGIN { printf "%f\n", v }')
+accelerometer_noise_density=$(awk -v v="$6" 'BEGIN { printf "%f\n", v }')
+accelerometer_random_walk=$(awk -v v="$7" 'BEGIN { printf "%f\n", v }')
+gyroscope_noise_density=$(awk -v v="$8" 'BEGIN { printf "%f\n", v }')
+gyroscope_random_walk=$(awk -v v="$9" 'BEGIN { printf "%f\n", v }')
+
+echo "Info: tagCols: $tagCols"
+echo "Info: tagRows: $tagRows"
+echo "Info: tagSize: $tagSize"
+echo "Info: tagSpacing: $tagSpacing"
+echo "Info: accelerometer_noise_density: $accelerometer_noise_density"
+echo "Info: accelerometer_random_walk: $accelerometer_random_walk"
+echo "Info: gyroscope_noise_density: $gyroscope_noise_density"
+echo "Info: gyroscope_random_walk: $gyroscope_random_walk"
 
 PATH_RGB="/data/rgb.mp4"
 PATH_ODOMETRY="/data/odometry.csv"
 PATH_IMU="/data/imu.csv"
 PATH_CAMERA_MATRIX="/data/camera_matrix.csv"
 
+HOME="/tmp"
+
 # temporary folder
-PATH_TEMP="/tmp/scratch"
+PATH_TEMP="/tmp/$1"
 mkdir "$PATH_TEMP"
 if [ ! -e "$PATH_TEMP" ]; then
     echo "Error: Unable to create temporary data folder: $PATH_TEMP."
@@ -91,6 +106,50 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# write the target configuration file
+PATH_TEMP_TARGET="$PATH_TEMP/aprilgrid.yaml"
+cat <<EOF > "$PATH_TEMP_TARGET"
+target_type: 'aprilgrid'
+tagCols: $tagCols
+tagRows: $tagRows
+tagSize: $tagSize
+tagSpacing: $tagSpacing
+EOF
+echo "Info: Finished writing target configuration to $PATH_TEMP_TARGET."
+
+# write IMU in the format kalibr expects
+PATH_TEMP_IMU="$PATH_TEMP/imu.csv"
+echo "timestamp,omega_x,omega_y,omega_z,acc_x,acc_y,acc_z" > "$PATH_TEMP_IMU"
+# treat timestamp as string literal to avoid losing precision
+awk -F',' 'NR>1 {
+    gsub(/[^0-9.]/, "", $1)
+    split($1, t, ".")
+    sec = t[1]
+    frac = t[2]
+    while(length(frac) < 9) frac = frac "0"
+    t_nsec = sec "" substr(frac,1,9)
+    gsub(/^0+/, "", t_nsec)
+    printf "%s,%s,%s,%s,%s,%s,%s\n", t_nsec, $5, $6, $7, $2, $3, $4
+}' "$PATH_IMU" >> "$PATH_TEMP_IMU"
+
+# calculate average imu freq
+IMU_DT=$(awk -F',' 'NR>1 {dt = $1 - prev; if(dt>0) print dt; prev = $1} NR==1 {prev=$1}' "$PATH_IMU")
+IMU_FREQ=$(echo "$IMU_DT" | sort -n | awk '{a[NR]=$1} END{if(NR%2==1){print a[(NR+1)/2]} else{print (a[NR/2]+a[NR/2+1])/2}}')
+update_rate=$(awk -v dt="$IMU_FREQ" 'BEGIN {printf "%.2f", 1/dt}')
+
+# write IMU calibration file
+PATH_TEMP_IMU_CALIB="$PATH_TEMP/imu.yaml"
+cat <<EOF > "$PATH_TEMP_IMU_CALIB"
+sensor_model: "imu"
+rostopic: "/imu"
+update_rate: $update_rate
+accelerometer_noise_density: $accelerometer_noise_density
+accelerometer_random_walk: $accelerometer_random_walk
+gyroscope_noise_density: $gyroscope_noise_density
+gyroscope_random_walk: $gyroscope_random_walk
+EOF
+echo "Info: Finished writing IMU calibration to $PATH_TEMP_IMU_CALIB."
+
 # extract frames
 PATH_TEMP_FRAMES="$PATH_TEMP/cam0"
 mkdir "$PATH_TEMP_FRAMES"
@@ -107,45 +166,6 @@ if [ $EXIT_CODE -ne 0 ]; then
 fi
 echo "Info: Finished splitting image frames."
 echo "Info: Resolution of RGB imagery: [${CAMERA_W}, ${CAMERA_H}]."
-
-# write the target configuration file
-PATH_TEMP_TARGET="$PATH_TEMP/aprilgrid.yaml"
-cat <<EOF > "$PATH_TEMP_TARGET"
-target_type: 'aprilgrid'
-tagCols: $2
-tagRows: $3
-tagSize: $4
-tagSpacing: $5
-EOF
-echo "Info: Finished writing target configuration to $PATH_TEMP_TARGET."
-
-# write IMU in the format kalibr expects
-PATH_TEMP_IMU="$PATH_TEMP/imu.csv"
-echo "timestamp,omega_x,omega_y,omega_z,acc_x,acc_y,acc_z" > "$PATH_TEMP_IMU"
-# treat timestamp as string literal to avoid losing precision
-awk -F',' 'NR>1 {
-    gsub(/[^0-9.]/, "", $1)     # remove stray chars
-    split($1, t, ".")
-    sec = t[1]
-    frac = t[2]
-    while(length(frac) < 9) frac = frac "0"
-    t_nsec = sec "" substr(frac,1,9)
-    gsub(/^0+/, "", t_nsec)     # remove leading zeros
-    printf "%s,%s,%s,%s,%s,%s,%s\n", t_nsec, $5, $6, $7, $2, $3, $4
-}' "$PATH_IMU" >> "$PATH_TEMP_IMU"
-
-# write IMU calibration file
-PATH_TEMP_IMU_CALIB="$PATH_TEMP/imu.yaml"
-cat <<EOF > "$PATH_TEMP_IMU_CALIB"
-sensor_model: "imu"
-rostopic: "/imu"
-update_rate: ${10}
-accelerometer_noise_density: $6
-accelerometer_random_walk: $7
-gyroscope_noise_density: $8
-gyroscope_random_walk: $9
-EOF
-echo "Info: Finished writing IMU calibration to $PATH_TEMP_IMU_CALIB."
 
 # parse camera intrinsics
 read FX _ CX <<<"$(awk -F',' 'NR==1 {print $1, $2, $3}' $PATH_CAMERA_MATRIX)"
@@ -165,15 +185,6 @@ cam0:
   rostopic: /cam0/image_raw
 EOF
 echo "Info: Finished writing camera intrinsics to $PATH_TEMP_CAMERA_INTRINSICS."
-
-# run ros setup script
-PATH_ROS_SETUP=$(find /opt -name setup.bash 2>/dev/null | grep ros)
-source "$PATH_ROS_SETUP"
-echo "Info: Ran $PATH_ROS_SETUP."
-
-# run kalibr setup script
-source "devel/setup.bash"
-echo "Info: Ran Kalibr's setup.bash."
 
 # create rosbag
 rosrun kalibr kalibr_bagcreater \

@@ -31,7 +31,7 @@ namespace HandySLAM {
     // TODO: All as_float calls in this constructor
     // should be redundant and check for integer values where relevant
     // also, we need to check support for 1e3 notation
-    Profile::Profile(const std::string& profile, std::size_t fps, std::optional<cv::Size> sizeInternal) {
+    Profile::Profile(const std::string& profile, cv::Size sizeDepthmap, std::size_t fps) {
         // fps
         fps_ = fps;
         // profile
@@ -67,9 +67,9 @@ namespace HandySLAM {
             log_err("Failed to prase resolution [", pathTransform, "].");
             exit(1);
         }
-        sizeOriginal_.width = nodeResolution[0].as_int();
-        sizeOriginal_.height = nodeResolution[1].as_int();
-        sizeInternal_ = sizeInternal.value_or(sizeOriginal_);
+        sizeIm_.width = nodeResolution[0].as_int();
+        sizeIm_.height = nodeResolution[1].as_int();
+        sizeDepthmap_ = sizeDepthmap;
         // parse IMU calibration matrix
         std::size_t row = 0, col;
         for(auto& nodeRow : nodeCam.at("T_cam_imu")) {
@@ -88,8 +88,11 @@ namespace HandySLAM {
             log_err("Failed to parse IMU-to-camera transform [", pathTransform, "].");
             exit(1);
         }
+    }
+
+    const std::string Profile::strSettingsFile() const {
         // create a temporary file
-        pathSettings = std::filesystem::temp_directory_path() / (profile + ".yaml");
+        std::filesystem::path pathSettings = std::filesystem::temp_directory_path() / (profile_ + ".yaml");
         std::ofstream writer(pathSettings);
         if(!writer) {
             log_err("Failed to write to [", pathSettings, "].");
@@ -109,10 +112,10 @@ namespace HandySLAM {
         writer << "Camera1.k2: 0.0" << std::endl;
         writer << "Camera1.p1: 0.0" << std::endl;
         writer << "Camera1.p2: 0.0" << std::endl;
-        writer << "Camera.width: "     << sizeOriginal_.width << std::endl;
-        writer << "Camera.height: "    << sizeOriginal_.height << std::endl;
-        writer << "Camera.newWidth: "  << sizeInternal_.width << std::endl;
-        writer << "Camera.newHeight: " << sizeInternal_.height << std::endl;
+        writer << "Camera.width: "     << sizeIm_.width << std::endl;
+        writer << "Camera.height: "    << sizeIm_.height << std::endl;
+        writer << "Camera.newWidth: "  << sizeDepthmap_.width << std::endl;
+        writer << "Camera.newHeight: " << sizeDepthmap_.height << std::endl;
         writer << "Camera.fps: " << fps_ << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
         writer << "Stereo.ThDepth: 40.0" << std::endl;
@@ -159,10 +162,7 @@ namespace HandySLAM {
         writer << "Viewer.ViewpointF: 500.0" << std::endl;
         // close reader
         writer.close();
+        // return path to the settings file
+        return pathSettings.string();
     }
-    Profile::Profile(const std::string& profile, std::size_t fps) : 
-        Profile::Profile(profile, fps, std::nullopt) { /* STUB */ }
-
-    Profile::Profile(const std::string& profile, std::size_t fps, cv::Size sizeInternal) : 
-        Profile::Profile(profile, fps, std::optional(sizeInternal)) { /* STUB */ }
 }

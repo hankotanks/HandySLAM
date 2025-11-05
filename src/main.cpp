@@ -29,9 +29,12 @@ int main(int argc, char* argv[]) {
     // load scene data
     HandySLAM::DataloaderStray data(pathScene);
     // parse profile
-    HandySLAM::Profile profile(argv[2], data.fps(), SIZE_INTERNAL);
+    cv::Size sizeDepthmap = data.sizeDepthmap();
+    double fps = data.fps();
+    HandySLAM::Profile profile(argv[2], sizeDepthmap, fps);
+    std::string strSettingsFile = profile.strSettingsFile();
     {
-        ORB_SLAM3::System SLAM(VOCAB_PATH, profile.pathSettings, ORB_SLAM3::System::IMU_RGBD);
+        ORB_SLAM3::System SLAM(VOCAB_PATH, strSettingsFile, ORB_SLAM3::System::IMU_RGBD);
         // iterate through frames
         std::size_t maps = 0;
         std::size_t stateCurr, statePrev = 0;
