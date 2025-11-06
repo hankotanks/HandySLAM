@@ -14,7 +14,7 @@ namespace HandySLAM {
     private:
     private:
         std::string profile_;
-        Eigen::Matrix4d imu2cam_;
+        Eigen::Matrix4d cam2imu_;
         double noiseGyr_;
         double noiseAcc_;
         double rwalkGyr_;

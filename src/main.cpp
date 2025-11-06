@@ -9,14 +9,7 @@
 #include "Config.h"
 #include "Profile.h"
 #include "DataloaderStray.h"
-
-#define ASSERT_PATH_EXISTS(path_) if(!std::filesystem::exists(path_)) { \
-        std::cout << "Path does not exist [" << path_ << "]." << std::endl; \
-        exit(1); \
-    }
-
-// TODO: Better handling of size parity between RGB and depth maps
-#define SIZE_INTERNAL cv::Size(256, 192)
+#include "util.h"
 
 int main(int argc, char* argv[]) {
     if(argc != 3) {
@@ -36,23 +29,20 @@ int main(int argc, char* argv[]) {
     {
         ORB_SLAM3::System SLAM(VOCAB_PATH, strSettingsFile, ORB_SLAM3::System::IMU_RGBD);
         // iterate through frames
-        std::size_t maps = 0;
-        std::size_t stateCurr, statePrev = 0;
-        std::optional<ORB_SLAM3::IMU::Point> meas;
+        std::size_t maps = 1;
+        int stateCurr;
+        int statePrev = static_cast<int>(ORB_SLAM3::Tracking::NO_IMAGES_YET);
         for(HandySLAM::Frame& frameCurr : data) {
-            // sort IMU measurements
-            std::sort(frameCurr.vImuMeas.begin(), frameCurr.vImuMeas.end(), [](ORB_SLAM3::IMU::Point a, ORB_SLAM3::IMU::Point b) { return a.t < b.t; });
             // process frame
             SLAM.TrackRGBD(frameCurr.im, frameCurr.depthmap, frameCurr.timestamp, frameCurr.vImuMeas); 
             // check if SLAM broke and we had to make a new map
             stateCurr = SLAM.GetTrackingState();
-            if(stateCurr == ORB_SLAM3::Tracking::RECENTLY_LOST && stateCurr != statePrev) ++maps; 
+            if(stateCurr == static_cast<int>(ORB_SLAM3::Tracking::RECENTLY_LOST) 
+                && stateCurr != statePrev) ++maps; 
             statePrev = stateCurr;
-            // store this frame's final IMU reading for the next iteration
-            if(!frameCurr.vImuMeas.empty()) meas = frameCurr.vImuMeas.back();
         }
         // wait for input before closing the visualizer
-        std::cout << "Info: Generated " << (maps ? maps : 1) << " maps." << std::endl;
+        std::cout << "Info: Generated " << maps << " maps." << std::endl;
         std::cout << "Press ENTER to close viewer." << std::endl;
         std::cin.get();
         // shutdown the SLAM system

@@ -5,18 +5,7 @@
 
 #include "fkyaml.h"
 
-template <typename... Args>
-void log_err(Args&&... args) {
-    std::cout << "[ERROR] ";
-    int dummy[] = { 0, ((std::cout << std::forward<Args>(args) << ' '), 0) ... };
-    (void) dummy;
-    std::cout << std::endl;
-}
-
-#define ASSERT_PATH_EXISTS(path_) if(!std::filesystem::exists(path_)) { \
-        log_err("Path does not exist [", path_, "]."); \
-        exit(1); \
-    }
+#include "util.h"
 
 namespace {
     std::string readFile(const std::filesystem::path& path) {
@@ -71,11 +60,12 @@ namespace HandySLAM {
         sizeIm_.height = nodeResolution[1].as_int();
         sizeDepthmap_ = sizeDepthmap;
         // parse IMU calibration matrix
+        Eigen::Matrix4d imu2cam;
         std::size_t row = 0, col;
         for(auto& nodeRow : nodeCam.at("T_cam_imu")) {
             col = 0;
             for(auto& nodeVal : nodeRow) {
-                imu2cam_(row, col) = static_cast<double>(nodeVal.as_float());
+                imu2cam(row, col) = static_cast<double>(nodeVal.as_float());
                 col++;
             }
             if(col != 4) {
@@ -88,6 +78,8 @@ namespace HandySLAM {
             log_err("Failed to parse IMU-to-camera transform [", pathTransform, "].");
             exit(1);
         }
+        // invert matrix to get camera-to-IMU transform
+        cam2imu_ = imu2cam.inverse();
     }
 
     const std::string Profile::strSettingsFile() const {
@@ -129,10 +121,10 @@ namespace HandySLAM {
         writer << "   cols: 4" << std::endl;
         writer << "   dt: f" << std::endl;
         writer << "   data: [ ";
-        for(std::size_t i = 0; i < imu2cam_.rows(); ++i) {
-            for(std::size_t j = 0; j < imu2cam_.cols(); ++j) {
-                writer << imu2cam_(i, j);
-                if (!(i == imu2cam_.rows() - 1 && j == imu2cam_.cols() - 1)) {
+        for(std::size_t i = 0; i < cam2imu_.rows(); ++i) {
+            for(std::size_t j = 0; j < cam2imu_.cols(); ++j) {
+                writer << cam2imu_(i, j);
+                if (!(i == cam2imu_.rows() - 1 && j == cam2imu_.cols() - 1)) {
                     writer << ", ";
                 }
             }
