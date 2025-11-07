@@ -2,4 +2,5 @@ compile_commands.json
 build/*
 .cache/*
 profiles/*
-!profiles/iphone16pro/
+!profiles/iphone16pro-camchain-imucam.yaml
+!profiles/iphone16pro-imu.yaml

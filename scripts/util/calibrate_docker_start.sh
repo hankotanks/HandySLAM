@@ -95,9 +95,31 @@ echo "Info: <accelerometer_noise_density>: $HANDYSLAM_ACC_NOISE"
 echo "Info: <accelerometer_random_walk>: $HANDYSLAM_ACC_RANDOM_WALK"
 echo "Info: <gyroscope_noise_density>: $HANDYSLAM_GYRO_NOISE"
 echo "Info: <gyroscope_random_walk>: $HANDYSLAM_GYRO_RANDOM_WALK"
+
 # HandySLAM root path
-PROJECT_ROOT=$(dirname "$(dirname "$(dirname "$(realpath "$0")")")")
-echo "Info: Project root: $PROJECT_ROOT."
+PATH_PROJECT_ROOT=$(dirname "$(dirname "$(dirname "$(realpath "$0")")")")
+echo "Info: Project root: $PATH_PROJECT_ROOT."
+
+# additional paths for mounting
+PATH_PROFILES="$PATH_PROJECT_ROOT/profiles"
+if [ ! -e "$PATH_PROFILES" ]; then
+    echo "Info: $PATH_PROFILES does not exist. Creating."
+    mkdir "$PATH_PROFILES"
+    if [ ! -e "$PATH_PROFILES" ]; then
+        echo "Error: Failed to create $PATH_PROFILES."
+        exit 1
+    fi
+fi
+PATH_SCRIPT="$PATH_PROJECT_ROOT/scripts/util/calibrate_docker.sh"
+if [ ! -f "$PATH_SCRIPT" ]; then
+    echo "Error: $PATH_SCRIPT does not exist."
+    exit 1
+fi
+PATH_SCRIPT_SPLIT_FRAMES="$PATH_PROJECT_ROOT/scripts/util/split_frames.py"
+if [ ! -f "$PATH_SCRIPT_SPLIT_FRAMES" ]; then
+    echo "Error: $PATH_SCRIPT_SPLIT_FRAMES does not exist."
+    exit 1
+fi
 
 # enter the container
 echo "Info: Entering docker container."
@@ -120,15 +142,17 @@ docker run --rm -it \
     -v "$3:/timestamps.txt" \
     -v "$4:/target.yaml" \
     -v "$5:/imu.csv" \
-    -v "$PROJECT_ROOT:/HandySLAM" \
+    -v "$PATH_SCRIPT:/calibrate_docker.sh" \
+    -v "$PATH_SCRIPT_SPLIT_FRAMES:/split_frames.py" \
+    -v "$PATH_PROFILES:/profiles" \
     --entrypoint /bin/bash \
     kalibr -c '
         export KALIBR_MANUAL_FOCAL_LENGTH_INIT=1
         cd $WORKSPACE
-        chmod +x /HandySLAM/scripts/util/calibrate_docker.sh
-        /HandySLAM/scripts/util/calibrate_docker.sh
+        chmod +x /calibrate_docker.sh
+        /calibrate_docker.sh
         EXIT_CODE=$?
-        echo "Calibration finished with exit code $EXIT_CODE"
+        echo "Info: Calibration finished with exit code $EXIT_CODE"
         exit $EXIT_CODE
     '
 
