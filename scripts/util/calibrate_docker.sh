@@ -1,8 +1,15 @@
 #!/bin/bash
 
-# ensure project root is accessible
-if [ ! -e "/HandySLAM" ]; then
-    echo "Error: Project root does not exist. Make sure this container was run with calibrate_docker_start.sh."
+# ensure profiles folder exists
+PATH_PROFILES="/profiles"
+if [ ! -e "$PATH_PROFILES" ]; then
+    echo "Error: $PATH_PROFILES does not exist. Make sure this container was run with calibrate_docker_start.sh."
+    exit 1
+fi
+
+# ensure utility scripts are accessible
+if [ ! -f "/split_frames.py" ]; then
+    echo "Error: /split_frames.py does not exist. Make sure this container was run with calibrate_docker_start.sh."
     exit 1
 fi
 
@@ -96,7 +103,7 @@ if [ ! -e "$PATH_BAG_FRAMES" ]; then
     exit 1
 fi
 echo "Info: Created folder for imagery: $PATH_BAG_FRAMES."
-read CAMERA_W CAMERA_H < <(python3 /HandySLAM/scripts/util/split_frames.py "$PATH_RGB" "$PATH_TIMESTAMPS" "$PATH_BAG_FRAMES")
+read CAMERA_W CAMERA_H < <(python3 /split_frames.py "$PATH_RGB" "$PATH_TIMESTAMPS" "$PATH_BAG_FRAMES")
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
     echo "Error: Failed to split RGB imagery: $EXIT_CODE."
@@ -149,19 +156,6 @@ if [ $EXIT_CODE -ne 0 ]; then
 fi
 echo "Info: Found calibration parameters."
 
-# make result folder
-PATH_RESULTS="/HandySLAM/profiles/$HANDYSLAM_PROFILE_NAME"
-if [ -e "$PATH_RESULTS" ]; then
-    echo "Info: Removing previous profile: $HANDYSLAM_PROFILE_NAME."
-    rm -rf "$PATH_RESULTS"
-fi
-mkdir -p "$PATH_RESULTS"
-if [ ! -e "$PATH_RESULTS" ]; then
-    echo "Error: Unable to create profile folder: $PATH_RESULTS."
-    exit 1
-fi
-echo "Info: Created profile folder: $PATH_RESULTS."
-
 # copy results to profile folder
-cp "/tmp/$HANDYSLAM_PROFILE_NAME-camchain-imucam.yaml" "$PATH_RESULTS/$HANDYSLAM_PROFILE_NAME-camchain-imucam.yaml"
-cp "/tmp/$HANDYSLAM_PROFILE_NAME-imu.yaml" "$PATH_RESULTS/$HANDYSLAM_PROFILE_NAME-imu.yaml"
+cp "/tmp/$HANDYSLAM_PROFILE_NAME-camchain-imucam.yaml" "$PATH_PROFILES/$HANDYSLAM_PROFILE_NAME-camchain-imucam.yaml"
+cp "/tmp/$HANDYSLAM_PROFILE_NAME-imu.yaml" "$PATH_PROFILES/$HANDYSLAM_PROFILE_NAME-imu.yaml"

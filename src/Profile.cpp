@@ -24,7 +24,7 @@ namespace HandySLAM {
         // fps
         fps_ = fps;
         // profile
-        std::filesystem::path pathProfile = std::filesystem::path(PROJECT_ROOT) / "profiles" / profile;
+        std::filesystem::path pathProfile = std::filesystem::path(PROJECT_ROOT) / "profiles";
         std::filesystem::path pathTransform = pathProfile / (profile + "-camchain-imucam.yaml");
         std::filesystem::path pathNoise = pathProfile / (profile + "-imu.yaml");
         ASSERT_PATH_EXISTS(pathTransform);
