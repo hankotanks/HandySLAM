@@ -14,7 +14,7 @@
 
 int main(int argc, char* argv[]) {
     if(argc != 3 && argc != 4) {
-        std::cout << "Usage: " << argv[0] << " <scene_path> <profile_name> --imu" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <scene_path> <profile_name> [--imu]" << std::endl;
         exit(1);
     }
     // parse scene path
@@ -32,17 +32,6 @@ int main(int argc, char* argv[]) {
         double timestampPrev = std::numeric_limits<double>::max() * -1.0;
         for(HandySLAM::Frame& frameCurr : data) {
             if(usingImu && !frameCurr.vImuMeasValidate(timestampPrev)) break;
-#ifdef DEBUG_FRAMES
-            std::cout << "frame " << frameCurr.index << ", t: " << frameCurr.timestamp << ", meas: [ ";
-            for(const ORB_SLAM3::IMU::Point& meas : frameCurr.vImuMeas) {
-                std::cout << std::fixed << std::setprecision(4) << "{ "
-                    << "t: " << meas.t << ", "
-                    << "a: [" << meas.a.x() << ", " << meas.a.y() << ", " << meas.a.z() << "], "
-                    << "w: [" << meas.w.x() << ", " << meas.w.y() << ", " << meas.w.z() << "] "
-                    << "}, ";
-            }
-            std::cout << "]" << std::endl;
-#endif
             // process frame
             SLAM.TrackRGBD(frameCurr.im, frameCurr.depthmap, frameCurr.timestamp, frameCurr.vImuMeas); 
             timestampPrev = frameCurr.timestamp;
