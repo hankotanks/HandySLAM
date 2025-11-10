@@ -1,4 +1,15 @@
-== Setup
+== HandySLAM
+
+Perform offline SLAM on RGBD sequences recorded with LiDAR-capable smartphones.
+This project contains a data loader for scenes recorded with the 
+https://github.com/strayrobots/scanner[Stray Scanner] app on iOS devices,
+and a number of helper scripts for smartphone calibration with https://github.com/ethz-asl/kalibr[Kalibr].
+
+=== Setup
+
+HandySLAM is setup using a Bash script as shown below.
+This project was developed and tested only on Debian GNU/Linux 12 (bookworm) and Ubuntu 24.04.3 LTS.
+
 [source,sh]
 ----
 #!/bin/bash
@@ -6,13 +17,52 @@ sudo apt-get install libopencv-dev
 git clone https://github.com/hankotanks/HandySLAM.git
 chmod +x build.sh
 ./build.sh
+# building HandySLAM
+make -C build
 ----
 
-== Generating Calibration Profile
+=== Calibration
+
+HandySLAM requires a calibration profile for the device used
+to record RGBD scenes. A basic calibration for an iPhone 16 Pro is given in `/profiles`.
+This profile should give fairly accurate results for all scans taken with the same model of iPhone.
+
+If you have a different device, or would prefer device-specific extrinsics, 
+you can generate a new profile. From Kalibr's _Camera IMU calibration_ article:
+
+[quote, https://github.com/ethz-asl/kalibr/wiki/camera-imu-calibration]
+The calibration target is fixed in this calibration and the camera-imu system is moved in front of the target to excite all IMU axes. It is important to ensure good and even illumination of the calibration target and to keep the camera shutter times low to avoid excessive motion blur.
+
+I've had good results with 60 seconds of isolated excitation of all accelerometer and gyroscope axes, 
+followed by 30 seconds of combined movement. Kalibr must be installed through docker for the included
+calibration scripts to succeed.
+
 [source,sh]
 ----
 #!/bin/bash
-chmod +x ./scripts/calibration_start.sh
-./scripts/calibration_start.sh ~/Documents/1db4db4bec_calib/1db4db4bec/
-source ../HandySLAM/scripts/calibration_with_aprilgrid.sh 6 6 0.039 0.009 0.014 0.0025 0.0051 0.0005 100
+chmod +x ./scripts/calibrate_stray_with_aprilgrid.sh
+# Usage: ./scripts/calibrate_stray_with_aprilgrid.sh <scene_path> <profile_name> 
+#          <tagCols> <tagRows> <tagSize> <tagSpacing> 
+#          <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk>
+# Below: calibrate using a Stray scene of a 6x6 april grid with 3.9cm tags spaced 9mm apart
+# the final 4 parameters are IMU noise parameters
+./scripts/calibrate_stray_with_aprilgrid.sh ../1db4db4bec/1db4db4bec/ iphone16pro 6 6 0.039 0.009 1.4e-2 2.5e-3 5.1e-3 5e-4
+----
+
+=== Localization
+
+Once you have a suitable calibration profile, you can process a scene.
+Currently, The https://github.com/strayrobots/scanner[Stray Scanner] app is the only supported method of
+recording scenes for HandySLAM.
+
+[source,sh]
+----
+#!/bin/bash
+# uncompress the scene
+tar -xzvf 1db4db4bec.tar.gz --strip-components=1
+cd HandySLAM
+# run SLAM
+./build/HandySLAM ../1db4db4bec iphone16pro
+# dump trajectory
+cat ../1db4db4bec/trajectory.txt
 ----
