@@ -31,7 +31,13 @@ If you have a different device, or would prefer device-specific extrinsics,
 you can generate a new profile. From Kalibr's _Camera IMU calibration_ article:
 
 [quote, https://github.com/ethz-asl/kalibr/wiki/camera-imu-calibration]
+++++
 The calibration target is fixed in this calibration and the camera-imu system is moved in front of the target to excite all IMU axes. It is important to ensure good and even illumination of the calibration target and to keep the camera shutter times low to avoid excessive motion blur.
+++++
+
+++++
+
+++++
 
 I've had good results with 60 seconds of isolated excitation of all accelerometer and gyroscope axes, 
 followed by 30 seconds of combined movement. Kalibr must be installed through docker for the included
