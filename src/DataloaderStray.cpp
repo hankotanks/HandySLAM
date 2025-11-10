@@ -10,6 +10,7 @@
 #include <opencv2/core/mat.hpp>
 
 #include "Dataloader.h"
+
 #include "util.h"
 
 namespace {
@@ -39,7 +40,7 @@ namespace {
 } // private scope
 
 namespace HandySLAM {
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene) : Dataloader(pathScene) {
+    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, const std::string& profileName) : Dataloader(pathScene, profileName) {
         // rgb.mp4
         pathRGB_ = pathScene_ / "rgb.mp4";
         ASSERT_PATH_EXISTS(pathRGB_);
@@ -49,7 +50,8 @@ namespace HandySLAM {
             log_err("Failed to open ", pathRGB_, "].");
             exit(1);
         }
-        fps_  = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FPS));
+        // set Dataloader::fps
+        fps = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FPS));
         // initialize frame index and count
         frameIdx_ = 0;
         frameCount_ = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_COUNT));
@@ -82,6 +84,52 @@ namespace HandySLAM {
             advanced++;
         }
         std::cout << "Advanced " << advanced << " frames to the start of IMU measurements." << std::endl;
+        // set Dataloader::sizeDepthmap
+        cv::Mat depthmap = cv::imread(pathDepth_ / "000000.png", cv::IMREAD_UNCHANGED);
+        sizeDepthmap.width = depthmap.cols;
+        sizeDepthmap.height = depthmap.rows;
+        // parse camera_matrix.csv
+        pathCameraMatrix_ = pathScene_ / "camera_matrix.csv";
+        ASSERT_PATH_EXISTS(pathCameraMatrix_);
+        // open the input stream
+        std::ifstream reader(pathCameraMatrix_);
+        if(!reader.is_open()) {
+            log_err("Failed to open [", pathCameraMatrix_, "].");
+            exit(1);
+        }
+        // get first row
+        std::stringstream stream;
+        if(!readLine(reader, stream)) exit(1);
+        // read the relevant intrinsics
+        // row: 0, col: 0
+        if(!parse<double>(stream, intrinsics.fx, false)) exit(1);
+        // row: 0, col: 1
+        double dummy;
+        if(!parse<double>(stream, dummy, false)) exit(1);
+        // row: 0, col: 2
+        if(!parse<double>(stream, intrinsics.cx, true)) exit(1);
+        // get second row
+        if(!readLine(reader, stream)) exit(1);
+        // row: 1, col: 0
+        if(!parse<double>(stream, dummy, false)) exit(1);
+        // row: 1, col: 1
+        if(!parse<double>(stream, intrinsics.fy, false)) exit(1);
+        // row: 1, col: 2
+        if(!parse<double>(stream, intrinsics.cy, true)) exit(1);
+        // get third row
+        if(!readLine(reader, stream)) exit(1);
+        // row: 2, col: 0
+        if(!parse<double>(stream, dummy, false)) exit(1);
+        // row: 2, col: 1
+        if(!parse<double>(stream, dummy, false)) exit(1);
+        // row: 2, col: 2
+        double scalar;
+        if(!parse<double>(stream, scalar, false)) exit(1);
+        // adjust by scalar (although should always be 1.0)
+        intrinsics.fx /= scalar;
+        intrinsics.fy /= scalar;
+        intrinsics.cx /= scalar;
+        intrinsics.cy /= scalar;
     }
 
     DataloaderStray::~DataloaderStray() {
@@ -125,15 +173,6 @@ namespace HandySLAM {
         return frame;
     }
 
-    const double DataloaderStray::fps() const {
-        return fps_;
-    }
-
-    const cv::Size DataloaderStray::sizeDepthmap() const {
-        cv::Mat depthmap = cv::imread(pathDepth_ / "000000.png", cv::IMREAD_UNCHANGED);
-        return cv::Size(depthmap.cols, depthmap.rows);
-    }
-
     std::optional<cv::Mat> DataloaderStray::im() {
         cv::Mat im;
         if(!cap_.read(im)) {
@@ -159,18 +198,14 @@ namespace HandySLAM {
         return depthmap;
     }
 
-    std::optional<double> DataloaderStray::timestampGeneric(std::ifstream& reader) {
+    std::optional<double> DataloaderStray::timestamp() {
         std::stringstream stream;
         double timestamp;
-        if(!readLine(reader, stream) || !parse<double>(stream, timestamp, false)) {
+        if(!readLine(readerOdom_, stream) || !parse<double>(stream, timestamp, false)) {
             log_err("Failed to get timestamp.");
             return std::nullopt;
         }
         return timestamp;
-    }
-
-    std::optional<double> DataloaderStray::timestamp() {
-        return DataloaderStray::timestampGeneric(readerOdom_);
     }
 
     std::vector<ORB_SLAM3::IMU::Point> DataloaderStray::vImuMeas(double timestamp) {
@@ -187,8 +222,8 @@ namespace HandySLAM {
             }
             // read the current timestamp
             double timestampCurr;
-            if(!parse<double>(stream, timestampCurr, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<double>(stream, timestampCurr, false)) return {};
+            timestampCurr += profile_.timeshift_cam_imu;
             // check if we need to break
             if(timestampCurr > timestamp) {
                 readerIMU_.clear();
@@ -197,70 +232,15 @@ namespace HandySLAM {
             }
             // read accelerometry and gyro data
             cv::Point3f acc, gyro;
-            if(!parse<float>(stream, acc.x, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
-            if(!parse<float>(stream, acc.y, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
-            if(!parse<float>(stream, acc.z, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
-            if(!parse<float>(stream, gyro.x, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
-            if(!parse<float>(stream, gyro.y, false)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
-            if(!parse<float>(stream, gyro.z, true)) 
-                return std::vector<ORB_SLAM3::IMU::Point>{};
+            if(!parse<float>(stream, acc.x, false))  return {};
+            if(!parse<float>(stream, acc.y, false))  return {};
+            if(!parse<float>(stream, acc.z, false))  return {};
+            if(!parse<float>(stream, gyro.x, false)) return {};
+            if(!parse<float>(stream, gyro.y, false)) return {};
+            if(!parse<float>(stream, gyro.z, true))  return {};
             // add the new point
             vImuMeas.emplace_back(acc, gyro, timestampCurr);
         } while(true);
-        return std::vector<ORB_SLAM3::IMU::Point>{};
+        return {};
     }
 }
-
-#if 0
-    std::size_t accumulated = 0;
-    std::vector<ORB_SLAM3::IMU::Point> vImuMeasPre = std::move(carryOverFrame_->vImuMeas);
-    while((carryOverFrame_ = DataloaderStray::nextInternal()) && (vImuMeasPre.back().t - vImuMeasPre.front().t) < vImuMeasPreThreshold) {
-        vImuMeasPre.insert(vImuMeasPre.end(), carryOverFrame_->vImuMeas.begin(), carryOverFrame_->vImuMeas.end());
-        accumulated++;
-    }
-    carryOverFrame_->vImuMeas.insert(carryOverFrame_->vImuMeas.begin(), vImuMeasPre.begin(), vImuMeasPre.end());
-    std::optional<ORB_SLAM3::IMU::Point> vImuMeasOvershoot = DataloaderStray::vImuMeasOvershoot();
-    if(!vImuMeasOvershoot) {
-        log_err("Failed to read past the first preintegration frame.");
-        exit(1);
-    }
-    carryOverFrame_->vImuMeas.push_back(*vImuMeasOvershoot);
-    std::cout << std::fixed << std::setprecision(4) << carryOverFrame_->timestamp << ", " << carryOverFrame_->vImuMeas.front().t << ", " << carryOverFrame_->vImuMeas.back().t << std::endl;
-    for(ORB_SLAM3::IMU::Point& pt : carryOverFrame_->vImuMeas) {
-        std::cout << std::fixed << std::setprecision(4) << pt.t << ", ";
-    }
-    std::cout << std::endl;
-    std::cout << "Accumulated IMU measurements from " << accumulated << " frames for preintegration." << std::endl;
-
-    std::optional<ORB_SLAM3::IMU::Point> DataloaderStray::vImuMeasOvershoot() {
-        // save position
-        auto pos = readerIMU_.tellg();
-        // get line
-        std::stringstream stream;
-        if(!readLine(readerIMU_, stream)) {
-            log_err("Failed to get IMU data.");
-            return std::nullopt;
-        }
-        // read the current timestamp
-        double timestampCurr;
-        if(!parse<double>(stream, timestampCurr, false)) return std::nullopt;
-        // read accelerometry and gyro data
-        cv::Point3f acc, gyro;
-        if(!parse<float>(stream, acc.x, false))  return std::nullopt;
-        if(!parse<float>(stream, acc.y, false))  return std::nullopt;
-        if(!parse<float>(stream, acc.z, false))  return std::nullopt;
-        if(!parse<float>(stream, gyro.x, false)) return std::nullopt;
-        if(!parse<float>(stream, gyro.y, false)) return std::nullopt;
-        if(!parse<float>(stream, gyro.z, true))  return std::nullopt;
-        // add the new point
-        readerIMU_.clear();
-        readerIMU_.seekg(pos);
-        // return
-        return ORB_SLAM3::IMU::Point(acc, gyro, timestampCurr);
-    }
-#endif

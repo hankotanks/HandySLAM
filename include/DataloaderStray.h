@@ -11,14 +11,11 @@
 namespace HandySLAM {
     class DataloaderStray : public Dataloader {
     public:
-        DataloaderStray(const std::filesystem::path& pathScene);
+        DataloaderStray(const std::filesystem::path& pathScene, const std::string& profileName);
         ~DataloaderStray();
         const std::optional<Frame> next() final override;
-        const double fps() const final override;
-        const cv::Size sizeDepthmap() const final override;
     private:
         const std::optional<Frame> nextInternal();
-        std::optional<double> timestampGeneric(std::ifstream& reader);
         std::optional<double> timestamp();
         std::optional<cv::Mat> im();
         std::optional<cv::Mat> depthmap();
@@ -30,6 +27,7 @@ namespace HandySLAM {
         std::filesystem::path pathDepth_;
         std::filesystem::path pathOdom_;
         std::filesystem::path pathIMU_;
+        std::filesystem::path pathCameraMatrix_;
         cv::VideoCapture cap_;
         std::size_t fps_;
         std::ifstream readerOdom_;

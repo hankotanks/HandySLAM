@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # make sure sufficient arguments are provided
-if [ "$#" -ne 10 ]; then
-    echo "Usage: $0 <scene_path> <profile_name> <tagCols> <tagRows> <tagSize> <tagSpacing> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk>"
+if [ "$#" -ne 9 ]; then
+    echo "Usage: $0 <scene_path> <profile_name> <targetCols> <targetRows> <spacingMeters> <accelerometer_noise_density> <accelerometer_random_walk> <gyroscope_noise_density> <gyroscope_random_walk>"
     exit 1
 fi
 
@@ -46,26 +46,22 @@ fi
 
 # validate target arguments
 if ! [[ "$3" =~ ^[0-9]+$ ]]; then
-    echo "Error: <tagCols> must be an integer."
+    echo "Error: <targetCols> must be an integer."
     exit 1
 fi
 if ! [[ "$4" =~ ^[0-9]+$ ]]; then
-    echo "Error: <tagRows> must be an integer."
+    echo "Error: <targetRows> must be an integer."
     exit 1
 fi
 if ! [[ "$5" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Error: <tagSize> must be a number (no scientific notation, ex. 1.3e3)."
-    exit 1
-fi
-if ! [[ "$6" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Error: <tagSpacing> must be a number (no scientific notation, ex. 1.3e3)."
+    echo "Error: <spacingMeters> must be a number (no scientific notation, ex. 1.3e3)."
     exit 1
 fi
 
-echo "Info: <tagCols>: $3"
-echo "Info: <tagRows>: $4"
-echo "Info: <tagSize>: $5"
-echo "Info: <tagSpacing>: $6"
+echo "Info: <targetCols>: $3"
+echo "Info: <targetRows>: $4"
+echo "Info: <rowSpacingMeters>: $5"
+echo "Info: <colSpacingMeters>: $5"
 
 PROJECT_ROOT=$(dirname "$(dirname "$(realpath "$0")")")
 
@@ -119,11 +115,11 @@ awk -F',' 'NR>1 {
 # write the target.yaml
 PATH_TEMP_TARGET="$PATH_TEMP/target.yaml"
 cat <<EOF > "$PATH_TEMP_TARGET"
-target_type: 'aprilgrid'
-tagCols: $3
-tagRows: $4
-tagSize: $5
-tagSpacing: $6
+target_type: 'checkerboard'
+targetCols: $3
+targetRows: $4
+rowSpacingMeters: $5
+colSpacingMeters: $5
 EOF
 echo "Info: Finished writing target configuration to $PATH_TEMP_TARGET."
 
@@ -138,7 +134,7 @@ echo "Info: Running $CALIBRATE_DOCKER_START."
 chmod +x "$CALIBRATE_DOCKER_START"
 "$CALIBRATE_DOCKER_START" "$2" \
     "$PATH_RGB" "$PATH_TEMP_TIMESTAMPS" "$PATH_TEMP_TARGET" "$PATH_TEMP_IMU" \
-    "$FX" "$FY" "$CX" "$CY" "$7" "$8" "$9" "${10}"
+    "$FX" "$FY" "$CX" "$CY" "$6" "$7" "$8" "$9"
 
 # check success
 EXIT_CODE=$?

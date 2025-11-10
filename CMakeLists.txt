@@ -7,6 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+add_compile_options(-Wno-deprecated-declarations)
+
 find_package(Eigen3 3.3 REQUIRED)
 set(Pangolin_DIR "${PROJECT_SOURCE_DIR}/Pangolin/build")
 find_package(Pangolin REQUIRED)
@@ -15,7 +17,7 @@ find_package(OpenCV 4.4 REQUIRED)
 add_executable(HandySLAM 
     src/main.cpp
     src/DataloaderStray.cpp
-    src/Profile.cpp)
+    src/Dataloader.cpp)
 
 target_compile_definitions(HandySLAM PRIVATE PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
