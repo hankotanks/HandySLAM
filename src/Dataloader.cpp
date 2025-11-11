@@ -122,7 +122,7 @@ namespace HandySLAM {
         writer << "%YAML:1.0" << std::endl;
         writer << "File.version: \"1.0\"" << std::endl;
         // camera
-        writer << "Camera.type: \"Rectified\"" << std::endl;
+        writer << "Camera.type: \"PinHole\"" << std::endl;
         writer << "Camera1.fx: " << metadata_->intrinsics.fx << std::endl;
         writer << "Camera1.fy: " << metadata_->intrinsics.fy << std::endl;
         writer << "Camera1.cx: " << metadata_->intrinsics.cx << std::endl;
@@ -134,7 +134,7 @@ namespace HandySLAM {
         writer << "Camera.fps: " << metadata_->fps << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
         writer << "Stereo.ThDepth: 5.0" << std::endl;
-        writer << "Stereo.b: 1.0" << std::endl; // 1e-6 // 0.0745
+        writer << "Stereo.b: 1.0" << std::endl;
         writer << "RGBD.DepthMapFactor: 1000.0" << std::endl;
         // IMU
         writer << "IMU.T_b_c1: !!opencv-matrix" << std::endl;
@@ -151,7 +151,7 @@ namespace HandySLAM {
             }
         }
         writer << " ]" << std::endl;
-        writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
+        writer << "IMU.InsertKFsWhenLost: 1" << std::endl;
         writer << "IMU.NoiseGyro: " << profile_->gyroscope_noise_density << std::endl;
         writer << "IMU.NoiseAcc: "  << profile_->accelerometer_noise_density << std::endl; 
         writer << "IMU.GyroWalk: "  << profile_->gyroscope_random_walk << std::endl; 
