@@ -13,13 +13,13 @@ namespace HandySLAM {
     public:
         DataloaderStray(const std::filesystem::path& pathScene, const std::string& profileName);
         ~DataloaderStray();
-        const std::optional<Frame> next() final override;
+        const std::optional<Frame> next() noexcept final override;
     private:
-        const std::optional<Frame> nextInternal();
-        std::optional<double> timestamp();
-        std::optional<cv::Mat> im();
-        std::optional<cv::Mat> depthmap();
-        std::vector<ORB_SLAM3::IMU::Point> vImuMeas(double timestamp);
+        const std::optional<Frame> nextInternal() noexcept;
+        std::optional<double> timestamp() noexcept;
+        std::optional<cv::Mat> im() noexcept;
+        std::optional<cv::Mat> depthmap() noexcept;
+        std::vector<ORB_SLAM3::IMU::Point> vImuMeas(double timestamp) noexcept;
     private:
         std::size_t frameIdx_;
         std::size_t frameCount_;

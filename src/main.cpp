@@ -1,9 +1,10 @@
 #include <iostream>
-
 #include <filesystem>
 #include <limits>
 #include <optional>
 #include <algorithm>
+#include <thread>
+#include <chrono>
 
 #include <System.h>
 
@@ -13,6 +14,7 @@
 #include "util.h"
 
 int main(int argc, char* argv[]) {
+    // TODO: Actually CLI parsing that support every Dataloader
     if(argc != 3 && argc != 4) {
         std::cout << "Usage: " << argv[0] << " <scene_path> <profile_name> [--imu]" << std::endl;
         exit(1);
@@ -36,12 +38,13 @@ int main(int argc, char* argv[]) {
             SLAM.TrackRGBD(frameCurr.im, frameCurr.depthmap, frameCurr.timestamp, frameCurr.vImuMeas); 
             timestampPrev = frameCurr.timestamp;
         }
-        // wait for input before closing the visualizer
-        std::cout << "Press ENTER to close viewer." << std::endl;
-        std::cin.get();
-        // shut down the SLAM system and save trajectory
         SLAM.Shutdown();
-        SLAM.SaveTrajectoryTUM(pathScene / "trajectory.csv");
+        while(!SLAM.isShutDown()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        // wait for input before closing the visualizer
+        std::cout << "Press ENTER to save trajectory. [^C] to exit without saving." << std::endl;
+        std::cin.get();
+        // save trajectory
+        SLAM.SaveTrajectoryTUM(pathScene / "trajectory.txt");
     }
     return 0;
 }

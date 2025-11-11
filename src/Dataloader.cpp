@@ -3,6 +3,7 @@
 #include "fkyaml.h"
 
 #include "util.h"
+#include <exception>
 
 namespace {
     std::string readFile(const std::filesystem::path& path) {
@@ -57,22 +58,22 @@ namespace HandySLAM {
         auto nodeIntrinsics = nodeCam["intrinsics"].as_seq();
         if(nodeIntrinsics.size() != 4) {
             log_err("Failed to parse intrinsics [", pathTransform, "].");
-            exit(1);
+            throw std::exception();
         }
-        intrinsics.fx = static_cast<double>(nodeIntrinsics[0].as_float());
-        intrinsics.fy = static_cast<double>(nodeIntrinsics[1].as_float());
-        intrinsics.cx = static_cast<double>(nodeIntrinsics[2].as_float());
-        intrinsics.cy = static_cast<double>(nodeIntrinsics[3].as_float());
+        unused.intrinsics.fx = static_cast<double>(nodeIntrinsics[0].as_float());
+        unused.intrinsics.fy = static_cast<double>(nodeIntrinsics[1].as_float());
+        unused.intrinsics.cx = static_cast<double>(nodeIntrinsics[2].as_float());
+        unused.intrinsics.cy = static_cast<double>(nodeIntrinsics[3].as_float());
         // parse timeshift_cam_imu
         timeshift_cam_imu = static_cast<double>(nodeCam["timeshift_cam_imu"].as_float());
         // parse resolution
         auto nodeResolution = nodeCam["resolution"].as_seq();
         if(nodeResolution.size() != 2) {
             log_err("Failed to prase resolution [", pathTransform, "].");
-            exit(1);
+            throw std::exception();
         }
-        resolution.width = nodeResolution[0].as_int();
-        resolution.height = nodeResolution[1].as_int();
+        unused.resolution.width = nodeResolution[0].as_int();
+        unused.resolution.height = nodeResolution[1].as_int();
         // parse IMU calibration matrix
         std::size_t row = 0, col;
         for(auto& nodeRow : nodeCam.at("T_cam_imu")) {
@@ -83,27 +84,37 @@ namespace HandySLAM {
             }
             if(col != 4) {
                 log_err("Failed to parse IMU-to-camera transform [", pathTransform, "].");
-                exit(1);
+                throw std::exception();
             }
             row++;
         }
         if(row != 4) {
             log_err("Failed to parse IMU-to-camera transform [", pathTransform, "].");
-            exit(1);
+            throw std::exception();
         }
     }
 
-    Dataloader::Dataloader(const std::filesystem::path& pathScene, const std::string& profileName) : 
+    Dataloader::Dataloader(const std::filesystem::path& pathScene) : 
+        pathScene_(pathScene) { /* STUB */ }
+
+    Dataloader::Dataloader(const std::filesystem::path& pathScene, const std::string& profileName) :
         pathScene_(pathScene), profile_(profileName) { /* STUB */ }
 
     const std::string Dataloader::strSettingsFile() {
+        // ensure invariants are held
+        if(!profile_.has_value())
+            throw std::logic_error("profile_ was not set by derived Dataloader.");
+        if(!metadata_.has_value())
+            throw std::logic_error("metadata_ was not set by derived Dataloader.");
+        // don't generate the file a second time
         if(strSettingsFile_) return strSettingsFile_->string();
-        std::filesystem::path pathSettings = std::filesystem::temp_directory_path() / (profile_.name + ".yaml");
+        // create file
+        std::filesystem::path pathSettings = std::filesystem::temp_directory_path() / (profile_->name + ".yaml");
         strSettingsFile_.emplace(pathSettings);
         std::ofstream writer(pathSettings);
         if(!writer) {
             log_err("Failed to write to [", pathSettings, "].");
-            exit(1);
+            throw std::exception();
         }
         writer.imbue(std::locale::classic());
         // write YAML settings to file
@@ -112,15 +123,15 @@ namespace HandySLAM {
         writer << "File.version: \"1.0\"" << std::endl;
         // camera
         writer << "Camera.type: \"Rectified\"" << std::endl;
-        writer << "Camera1.fx: " << intrinsics.fx << std::endl;
-        writer << "Camera1.fy: " << intrinsics.fy << std::endl;
-        writer << "Camera1.cx: " << intrinsics.cx << std::endl;
-        writer << "Camera1.cy: " << intrinsics.cy << std::endl;
-        writer << "Camera.width: "     << profile_.resolution.width << std::endl;
-        writer << "Camera.height: "    << profile_.resolution.height << std::endl;
-        writer << "Camera.newWidth: "  << sizeDepthmap.width << std::endl;
-        writer << "Camera.newHeight: " << sizeDepthmap.height << std::endl;
-        writer << "Camera.fps: " << fps << std::endl;
+        writer << "Camera1.fx: " << metadata_->intrinsics.fx << std::endl;
+        writer << "Camera1.fy: " << metadata_->intrinsics.fy << std::endl;
+        writer << "Camera1.cx: " << metadata_->intrinsics.cx << std::endl;
+        writer << "Camera1.cy: " << metadata_->intrinsics.cy << std::endl;
+        writer << "Camera.width: "     << metadata_->sizeIm.width << std::endl;
+        writer << "Camera.height: "    << metadata_->sizeIm.height << std::endl;
+        writer << "Camera.newWidth: "  << metadata_->sizeDepthmap.width << std::endl;
+        writer << "Camera.newHeight: " << metadata_->sizeDepthmap.height << std::endl;
+        writer << "Camera.fps: " << metadata_->fps << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
         writer << "Stereo.ThDepth: 5.0" << std::endl;
         writer << "Stereo.b: 1.0" << std::endl; // 1e-6 // 0.0745
@@ -131,7 +142,7 @@ namespace HandySLAM {
         writer << "   cols: 4" << std::endl;
         writer << "   dt: f" << std::endl;
         writer << "   data: [ ";
-        Eigen::Matrix4d T_imu_cam = profile_.T_cam_imu.inverse();
+        Eigen::Matrix4d T_imu_cam = profile_->T_cam_imu.inverse();
         for(std::size_t i = 0; i < T_imu_cam.rows(); ++i) {
             for(std::size_t j = 0; j < T_imu_cam.cols(); ++j) {
                 // remove translation
@@ -141,11 +152,11 @@ namespace HandySLAM {
         }
         writer << " ]" << std::endl;
         writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
-        writer << "IMU.NoiseGyro: " << profile_.gyroscope_noise_density << std::endl;
-        writer << "IMU.NoiseAcc: "  << profile_.accelerometer_noise_density << std::endl; 
-        writer << "IMU.GyroWalk: "  << profile_.gyroscope_random_walk << std::endl; 
-        writer << "IMU.AccWalk: "   << profile_.accelerometer_random_walk << std::endl;  
-        writer << "IMU.Frequency: " << profile_.update_rate << std::endl;
+        writer << "IMU.NoiseGyro: " << profile_->gyroscope_noise_density << std::endl;
+        writer << "IMU.NoiseAcc: "  << profile_->accelerometer_noise_density << std::endl; 
+        writer << "IMU.GyroWalk: "  << profile_->gyroscope_random_walk << std::endl; 
+        writer << "IMU.AccWalk: "   << profile_->accelerometer_random_walk << std::endl;  
+        writer << "IMU.Frequency: " << profile_->update_rate << std::endl;
         // generic parameters
         writer << "ORBextractor.nFeatures: 2500" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;

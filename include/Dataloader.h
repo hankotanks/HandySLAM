@@ -7,6 +7,8 @@
 
 #include <System.h>
 
+#include "util.h"
+
 namespace HandySLAM {
     struct Frame {
         std::size_t index;
@@ -28,34 +30,39 @@ namespace HandySLAM {
     struct Profile {
         std::string name;
         Eigen::Matrix4d T_cam_imu;
-        Intrinsics intrinsics;
-        std::size_t fps;
         double update_rate;
         double gyroscope_noise_density;
         double gyroscope_random_walk;   
         double accelerometer_noise_density;
         double accelerometer_random_walk;  
         double timeshift_cam_imu;
-        cv::Size resolution;
         // parser
-        Profile(const std::string& profile);
+        Profile(const std::string& profileName);
+    private:
+        struct {
+            Intrinsics intrinsics;
+            cv::Size resolution;
+        } unused;
+    };
+
+    struct SceneMetadata {
+        cv::Size sizeIm;
+        cv::Size sizeDepthmap;
+        std::size_t fps;
+        Intrinsics intrinsics;
     };
 
     class Dataloader {
     public:
+        Dataloader(const std::filesystem::path& pathScene);
         Dataloader(const std::filesystem::path& pathScene, const std::string& profileName);
         const std::string strSettingsFile();
-        virtual const std::optional<Frame> next() = 0;
+        virtual const std::optional<Frame> next() noexcept = 0;
     protected:
         std::filesystem::path pathScene_;
-        Profile profile_;
-        // THIS MUST BE SET INSIDE THE DERIVED CLASS'S CONSTRUCTOR
-        cv::Size sizeDepthmap;
-        // THIS MUST BE SET INSIDE THE DERIVED CLASS'S CONSTRUCTOR
-        std::size_t fps;
-        // THIS MUST BE SET INSIDE THE DERIVED CLASS'S CONSTRUCTOR
-        Intrinsics intrinsics;
-
+        // THESE MUST BE SET INSIDE THE CONSTRUCTOR OF ANY DERIVED CLASS
+        SetOnce<Profile> profile_;
+        SetOnce<SceneMetadata> metadata_;
     public:
         class DataloaderIterator {
         public:
