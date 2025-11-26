@@ -1,9 +1,10 @@
 #include "Dataloader.h"
 
+#include <exception>
+
 #include "fkyaml.h"
 
 #include "util.h"
-#include <exception>
 
 namespace {
     std::string readFile(const std::filesystem::path& path) {

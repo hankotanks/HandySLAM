@@ -7,13 +7,16 @@
 #include <opencv2/core/mat.hpp>
 
 #include "Dataloader.h"
+#include "Initializer.h"
 
 namespace HandySLAM {
     class DataloaderStray : public Dataloader {
     public:
-        DataloaderStray(const std::filesystem::path& pathScene, const std::string& profileName);
+        DataloaderStray(Initializer& init);
         ~DataloaderStray();
         const std::optional<Frame> next() noexcept final override;
+    public:
+        const static std::string flag;
     private:
         const std::optional<Frame> nextInternal() noexcept;
         std::optional<double> timestamp() noexcept;

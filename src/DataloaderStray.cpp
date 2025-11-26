@@ -1,9 +1,6 @@
 #include "DataloaderStray.h"
 
 #include <exception>
-#include <filesystem>
-#include <optional>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -102,7 +99,23 @@ parse_camera_matrix_fail:
 } // private scope
 
 namespace HandySLAM {
-    DataloaderStray::DataloaderStray(const std::filesystem::path& pathScene, const std::string& profileName) : Dataloader(pathScene, profileName) {
+    const std::string DataloaderStray::flag = "stray";
+
+    DataloaderStray::DataloaderStray(Initializer& init) : Dataloader(init.pathScene) {
+        // parse args
+        std::string profileName;
+        clipp::group options = {
+            clipp::option("-p", "--profile").required(true).doc("name of the calibration profile") &
+            clipp::value("profile_name", profileName, [&](const std::string& profileNameRaw) {
+                std::filesystem::path pathProfile = std::filesystem::path(PROJECT_ROOT) / "profiles";
+                std::filesystem::path pathTransform = pathProfile / (profileNameRaw + "-camchain-imucam.yaml");
+                std::filesystem::path pathNoise = pathProfile / (profileNameRaw + "-imu.yaml");
+                return std::filesystem::exists(pathTransform) && std::filesystem::exists(pathNoise);
+            })
+        };
+        init.parse(options);
+        // configure profile
+        profile_ = Profile(profileName);
         // rgb.mp4
         pathRGB_ = pathScene_ / "rgb.mp4";
         ASSERT_PATH_EXISTS(pathRGB_);

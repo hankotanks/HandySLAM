@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 
 project(HandySLAM VERSION 1.0)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -16,6 +16,7 @@ find_package(OpenCV 4.4 REQUIRED)
 
 add_executable(HandySLAM 
     src/main.cpp
+    src/Initializer.cpp
     src/DataloaderStray.cpp
     src/Dataloader.cpp)
 
