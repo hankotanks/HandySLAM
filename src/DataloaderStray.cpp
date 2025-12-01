@@ -99,8 +99,6 @@ parse_camera_matrix_fail:
 } // private scope
 
 namespace HandySLAM {
-    const std::string DataloaderStray::flag = "stray";
-
     DataloaderStray::DataloaderStray(Initializer& init) : Dataloader(init.pathScene) {
         // parse args
         std::string profileName;

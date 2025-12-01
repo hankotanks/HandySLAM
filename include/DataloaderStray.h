@@ -15,8 +15,6 @@ namespace HandySLAM {
         DataloaderStray(Initializer& init);
         ~DataloaderStray();
         const std::optional<Frame> next() noexcept final override;
-    public:
-        const static std::string flag;
     private:
         const std::optional<Frame> nextInternal() noexcept;
         std::optional<double> timestamp() noexcept;

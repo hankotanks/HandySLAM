@@ -139,6 +139,10 @@ if [ $EXIT_CODE -ne 0 ]; then
 fi
 echo "Info: Created $PATH_BAG_FILE."
 
+# remove all the old frames
+rm -rf "${PATH_BAG_FRAMES}/*.png"
+echo "Info: Removed frames: ${PATH_BAG_FRAMES}."
+
 # perform calibration
 rosrun kalibr kalibr_calibrate_imu_camera \
     --bag $PATH_BAG_FILE \

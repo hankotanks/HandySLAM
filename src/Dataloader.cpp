@@ -2,6 +2,7 @@
 
 #include <exception>
 
+#include "Initializer.h"
 #include "fkyaml.h"
 
 #include "util.h"
@@ -65,12 +66,12 @@ namespace HandySLAM {
         unused.intrinsics.fy = static_cast<double>(nodeIntrinsics[1].as_float());
         unused.intrinsics.cx = static_cast<double>(nodeIntrinsics[2].as_float());
         unused.intrinsics.cy = static_cast<double>(nodeIntrinsics[3].as_float());
-        // parse timeshift_cam_imu
-        timeshift_cam_imu = static_cast<double>(nodeCam["timeshift_cam_imu"].as_float());
+        // parse timeshift_cam_imu as seconds
+        timeshift_cam_imu = static_cast<double>(nodeCam["timeshift_cam_imu"].as_float()) * 1.0e-9;
         // parse resolution
         auto nodeResolution = nodeCam["resolution"].as_seq();
         if(nodeResolution.size() != 2) {
-            log_err("Failed to prase resolution [", pathTransform, "].");
+            log_err("Failed to parse resolution [", pathTransform, "].");
             throw std::exception();
         }
         unused.resolution.width = nodeResolution[0].as_int();
@@ -130,8 +131,10 @@ namespace HandySLAM {
         writer << "Camera1.cy: " << metadata_->intrinsics.cy << std::endl;
         writer << "Camera.width: "     << metadata_->sizeIm.width << std::endl;
         writer << "Camera.height: "    << metadata_->sizeIm.height << std::endl;
-        writer << "Camera.newWidth: "  << metadata_->sizeDepthmap.width << std::endl;
-        writer << "Camera.newHeight: " << metadata_->sizeDepthmap.height << std::endl;
+        if(!Initializer::get().usingMono) {
+            writer << "Camera.newWidth: "  << metadata_->sizeDepthmap.width << std::endl;
+            writer << "Camera.newHeight: " << metadata_->sizeDepthmap.height << std::endl;
+        }
         writer << "Camera.fps: " << metadata_->fps << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
         writer << "Stereo.ThDepth: 5.0" << std::endl;
