@@ -14,6 +14,8 @@
 #include "DataloaderStray.h"
 #include "Initializer.h"
 
+void export_edges(ORB_SLAM3::Atlas* atlas);
+
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
     HandySLAM::Initializer::add<HandySLAM::DataloaderStray>("stray");
@@ -42,6 +44,51 @@ int main(int argc, char* argv[]) {
         std::cin.get();
         // save trajectory
         SLAM.SaveTrajectoryTUM(init.pathScene / "trajectory.txt");
+        export_edges(SLAM.mpAtlas);
     }
     return 0;
+}
+
+void export_edges(ORB_SLAM3::Atlas* atlas) {
+    std::vector<ORB_SLAM3::Map*> maps = atlas->GetAllMaps();
+    std::set<std::pair<double, double>> edge_set;
+
+    for(ORB_SLAM3::Map* map : maps) {
+        std::vector<ORB_SLAM3::KeyFrame*> keyframes = map->GetAllKeyFrames();
+        
+        for(ORB_SLAM3::KeyFrame* kf : keyframes) {
+            int fi = kf->mnFrameId;
+            double fi_timestamp = kf->mTimeStamp;
+            ORB_SLAM3::KeyFrame* parent = kf->GetParent();
+            if(parent) {
+                int fj = parent->mnFrameId;
+                double fj_timestamp = parent->mTimeStamp;
+                if (fi != fj)
+                {
+                    auto p = std::minmax(fi_timestamp, fj_timestamp);
+                    edge_set.insert(p);
+                }
+            }
+            for(ORB_SLAM3::KeyFrame* loopKF : kf->GetLoopEdges()) {
+                int fj = loopKF->mnFrameId;
+                double fj_timestamp = loopKF->mTimeStamp;
+                if (fi != fj) {
+                    auto p = std::minmax(fi_timestamp, fj_timestamp);
+                    edge_set.insert(p);
+                }
+            }
+
+            for(ORB_SLAM3::KeyFrame* connKF : kf->GetConnectedKeyFrames()) {
+                int fj = connKF->mnFrameId;
+                double fj_timestamp = connKF->mTimeStamp;
+                if (fi != fj) {
+                    auto p = std::minmax(fi_timestamp, fj_timestamp);
+                    edge_set.insert(p);
+                }
+            }
+        }
+    }
+    // TODO: write this to a file
+    for (const auto& e : edge_set)
+        std::cout << std::fixed << std::setprecision(10) <<e.first << " " << e.second << "\n";
 }
