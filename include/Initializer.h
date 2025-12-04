@@ -85,7 +85,7 @@ namespace HandySLAM {
         const enum ORB_SLAM3::System::eSensor sensor() const {
             return usingImu ? 
                 (usingMono ? ORB_SLAM3::System::IMU_MONOCULAR : ORB_SLAM3::System::IMU_RGBD) : 
-                (usingMono ? ORB_SLAM3::System::MONOCULAR : ORB_SLAM3::System::IMU_MONOCULAR);
+                (usingMono ? ORB_SLAM3::System::MONOCULAR : ORB_SLAM3::System::RGBD);
         }
 
     public:
