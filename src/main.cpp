@@ -14,7 +14,7 @@
 #include "DataloaderStray.h"
 #include "Initializer.h"
 
-void export_edges(ORB_SLAM3::Atlas* atlas);
+bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double, double>>& edge_set);
 
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
@@ -40,19 +40,35 @@ int main(int argc, char* argv[]) {
         SLAM.Shutdown();
         while(!SLAM.isShutDown()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
         // wait for input before closing the visualizer
-        std::cout << "Press ENTER to save trajectory. [^C] to exit without saving." << std::endl;
+        std::cout << "Press ENTER to save camera trajectory and graph edges. [^C] to exit without saving" << std::endl;
         std::cin.get();
         // save trajectory
         SLAM.SaveTrajectoryTUM(init.pathScene / "trajectory.txt");
-        export_edges(SLAM.mpAtlas);
+        std::cout << "Finished saving camera trajectory" << std::endl;
+        // save edges
+        std::set<std::pair<double, double>> edges;
+        if(!extract_edges_from_atlas(SLAM.mpAtlas, edges)) {
+            log_err("Failed to extract graph edges from Atlas");
+            return 1;
+        }
+        std::filesystem::path pathEdges = init.pathScene / "edges.txt";
+        std::ofstream writer(pathEdges);
+        if(!writer) {
+            log_err("Failed to write to [", pathEdges, "].");
+            return 1;
+        }
+        std::cout << "Saving graph edges to " << pathEdges << " ..." << std::endl;
+        writer.imbue(std::locale::classic());
+        writer << std::fixed << std::setprecision(10);
+        for(const auto& e : edges) writer << e.first << " " << e.second << std::endl;
+        writer.close();
+        std::cout << "Finished saving graph edges" << std::endl;
     }
     return 0;
 }
 
-void export_edges(ORB_SLAM3::Atlas* atlas) {
+bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double, double>>& edges) {
     std::vector<ORB_SLAM3::Map*> maps = atlas->GetAllMaps();
-    std::set<std::pair<double, double>> edge_set;
-
     for(ORB_SLAM3::Map* map : maps) {
         std::vector<ORB_SLAM3::KeyFrame*> keyframes = map->GetAllKeyFrames();
         
@@ -66,7 +82,7 @@ void export_edges(ORB_SLAM3::Atlas* atlas) {
                 if (fi != fj)
                 {
                     auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edge_set.insert(p);
+                    edges.insert(p);
                 }
             }
             for(ORB_SLAM3::KeyFrame* loopKF : kf->GetLoopEdges()) {
@@ -74,7 +90,7 @@ void export_edges(ORB_SLAM3::Atlas* atlas) {
                 double fj_timestamp = loopKF->mTimeStamp;
                 if (fi != fj) {
                     auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edge_set.insert(p);
+                    edges.insert(p);
                 }
             }
 
@@ -83,12 +99,10 @@ void export_edges(ORB_SLAM3::Atlas* atlas) {
                 double fj_timestamp = connKF->mTimeStamp;
                 if (fi != fj) {
                     auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edge_set.insert(p);
+                    edges.insert(p);
                 }
             }
         }
     }
-    // TODO: write this to a file
-    for (const auto& e : edge_set)
-        std::cout << std::fixed << std::setprecision(10) <<e.first << " " << e.second << "\n";
+    return true;
 }
