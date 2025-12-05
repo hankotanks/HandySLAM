@@ -7,15 +7,18 @@ import cv2
 import tqdm
 import pickle
 import copy
+import glob
 
 # discard all points with confidence < this value
 CONFIDENCE_THRESHOLD = 2
 # size of voxels to use in registration
-VOXEL_SIZE = 0.02 # 2cm
+VOXEL_SIZE = 0.04 # 2cm
 # visualize the full pose graph instead of performing registration
 VISUALIZE_GRAPH = False
 # unload point clouds before running multiway registration
 REDUCE_MEMORY_USAGE = True 
+# number of points to write before splitting the cloud
+POINTS_PER_CLOUD = 5_000_000
 
 if VISUALIZE_GRAPH:
     import networkx as nx
@@ -156,29 +159,43 @@ else:
 if FRAMES is None: 
     raise Exception("Failed to process scene")
 
-if REDUCE_MEMORY_USAGE:
-    print(f"Unloading {os.path.basename(path_blob)} to reduce memory usage")
-    for frame in FRAMES.values():
-        frame.points = None
-        frame.colors = None
-
 path_edges = os.path.join(path_scene, "edges.txt")
 if not os.path.exists(path_edges): raise IOError(f"Failed to find {path_edges}")
 
 edges = np.loadtxt(path_edges, usecols = [0, 1])
 if edges.shape[1] != 2: raise IOError(f"{path_edges} was malformed")
 
-edges_closures = np.argmin(np.abs(edges[:, :, None] - STAMPS[:, 0][None, None, :]), axis = 2)
+EDGES_CLOSURES = np.argmin(np.abs(edges[:, :, None] - STAMPS[:, 0][None, None, :]), axis = 2)
 
-edges_adjacent = np.array([[i, i+1] for i in range(edges_closures.min(), max(FRAMES.keys()))])
-edges_closures = edges_closures[np.abs(edges_closures[:, 0] - edges_closures[:, 1]) != 1]
+EDGES_ADJACENT = np.array([[i, i+1] for i in range(EDGES_CLOSURES.min(), max(FRAMES.keys()))])
+EDGES_CLOSURES = EDGES_CLOSURES[np.abs(EDGES_CLOSURES[:, 0] - EDGES_CLOSURES[:, 1]) != 1]
+
+def calculate_robust_kernel_scale():
+    residuals = []
+    for edge in EDGES_ADJACENT:
+        f0 = FRAMES[edge[0]]
+        f1 = FRAMES[edge[1]]
+        T_rel_slam = np.linalg.inv(f0.pose) @ f1.pose
+        translation_residual = np.linalg.norm(T_rel_slam[:3, 3])
+        R = T_rel_slam[:3, :3]
+        angle_residual = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
+        residuals.append((translation_residual, angle_residual))
+
+    translations, rotations = zip(*residuals)
+    translations = np.array(translations)
+    rotations = np.array(rotations)
+    scale = np.percentile(translations, 90)
+
+    print(f"Robust kernel scale: {scale}")
+
+    return scale
 
 if VISUALIZE_GRAPH:
     print("Clustering edge graph")
     G = nx.Graph()
     for frame_idx in FRAMES.keys(): G.add_node(frame_idx)
-    for edge in edges_adjacent: G.add_edge(edge[0], edge[1])
-    for edge in edges_closures: G.add_edge(edge[0], edge[1])
+    for edge in EDGES_ADJACENT: G.add_edge(edge[0], edge[1])
+    for edge in EDGES_CLOSURES: G.add_edge(edge[0], edge[1])
     G_pos = nx.spring_layout(G, seed = 42, k = 0.5, iterations = 200, scale = 2.0)
     nx.draw_networkx_nodes(G, G_pos, cmap = plt.cm.tab20, node_size = 20)
     nx.draw_networkx_edges(G, G_pos, alpha = 0.3)
@@ -208,13 +225,20 @@ def append_edges(edges, uncertain):
             np.linalg.inv(frame_snd.pose) @ frame_fst.pose, 
             np.identity(6), uncertain = uncertain))
 
-append_edges(edges_adjacent, False)
-append_edges(edges_closures, True)
+append_edges(EDGES_ADJACENT, False)
+append_edges(EDGES_CLOSURES, True)
+
+if REDUCE_MEMORY_USAGE:
+    print(f"Unloading {os.path.basename(path_blob)} to reduce memory usage")
+    for frame in FRAMES.values():
+        frame.points = None
+        frame.colors = None
 
 options = o3d.pipelines.registration.GlobalOptimizationOption(
     max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE,
-    edge_prune_threshold = 0.25,
-    reference_node = 0)
+    edge_prune_threshold = calculate_robust_kernel_scale(),
+    reference_node = 0,
+    preference_loop_closure = 2.0)
 with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
     o3d.pipelines.registration.global_optimization(
         POSE_GRAPH,
@@ -235,28 +259,54 @@ if REDUCE_MEMORY_USAGE:
     print(f"Loading {os.path.basename(path_blob)}")
     with open(path_blob, "rb") as f: FRAMES = pickle.load(f)
 
-pcd_positions = []
-pcd_colors = []
-pcd_timestamps = []
-pcd_labels = []
-for frame in FRAMES.values():
-    pcd_positions.append(frame.get_transformed_points(POSES[frame.frame_idx]))
-    pcd_colors.append(frame.colors)
-    pcd_timestamps.append(np.repeat(frame.t, frame.points.shape[0])[:, np.newaxis])
-    pcd_labels.append(np.repeat(frame.frame_idx, frame.points.shape[0])[:, np.newaxis])
+class Output:
+    _id = 0
+    def __init__(self):
+        self.id = type(self)._id
+        type(self)._id += 1
+        self.indices = []
+        self.entries = 0
+        self.positions = []
+        self.colors = []
+        self.timestamps = []
+        self.labels = []
 
-pcd_positions = np.vstack(pcd_positions)
-pcd_colors = np.vstack(pcd_colors)
-pcd_timestamps = np.vstack(pcd_timestamps)
-pcd_labels = np.vstack(pcd_labels).astype(np.int32)
+    def append(self, frame_idx):
+        self.indices.append(frame_idx)
+        frame_entries = FRAMES[frame_idx].points.shape[0]
+        self.entries += frame_entries
 
-device = o3d.core.Device("CPU:0")
+        self.positions.append(FRAMES[frame_idx].get_transformed_points(POSES[FRAMES[frame_idx].frame_idx]))
+        self.colors.append(FRAMES[frame_idx].colors)
+        self.timestamps.append(np.repeat(FRAMES[frame_idx].t, frame_entries)[:, np.newaxis])
+        self.labels.append(np.repeat(FRAMES[frame_idx].frame_idx, frame_entries)[:, np.newaxis].astype(np.int32))
 
-pcd = o3d.t.geometry.PointCloud(device)
-pcd.point.positions = o3d.core.Tensor(pcd_positions, o3d.core.float32, device)
-pcd.point.colors = o3d.core.Tensor(pcd_colors, o3d.core.float32, device)
-pcd.point.timestamps = o3d.core.Tensor(pcd_timestamps, o3d.core.float32, device)
-pcd.point.labels = o3d.core.Tensor(pcd_timestamps, o3d.core.int32, device)
+        if self.entries < POINTS_PER_CLOUD: return False
+        
+        path_out = os.path.join(path_scene, f"out_{self.id:03}.ply")
+        print(f"Writing {len(self.indices)} frames to {os.path.basename(path_out)}")
 
-path_out = os.path.join(path_scene, "reconstruction.ply")
-o3d.t.io.write_point_cloud(path_out, pcd)
+        device = o3d.core.Device("CPU:0")
+
+        pcd = o3d.t.geometry.PointCloud(device)
+        pcd.point.positions = o3d.core.Tensor(np.vstack(self.positions), o3d.core.float32, device)
+        pcd.point.colors = o3d.core.Tensor(np.vstack(self.colors), o3d.core.float32, device)
+        pcd.point.timestamps = o3d.core.Tensor(np.vstack(self.timestamps), o3d.core.float32, device)
+        pcd.point.labels = o3d.core.Tensor(np.vstack(self.labels), o3d.core.int32, device)
+
+        o3d.t.io.write_point_cloud(path_out, pcd)
+
+        if REDUCE_MEMORY_USAGE:
+            for frame_idx in self.indices:
+                FRAMES[frame_idx].points = None
+                FRAMES[frame_idx].colors = None
+        
+        return True
+
+print("Removing old scene reconstruction")
+for path_out_old in glob.glob(os.path.join(path_scene, "out_[0-9][0-9][0-9].ply")):
+    os.remove(path_out_old)
+
+out = Output()
+for frame_idx in tqdm.tqdm(FRAMES.keys(), f"Building {os.path.basename(path_blob)}"):
+    if out.append(frame_idx): out = Output()
