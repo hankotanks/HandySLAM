@@ -14,7 +14,7 @@
 #include "DataloaderStray.h"
 #include "Initializer.h"
 
-bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double, double>>& edge_set);
+bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edge_set);
 
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
@@ -43,10 +43,10 @@ int main(int argc, char* argv[]) {
         std::cout << "Press ENTER to save camera trajectory and graph edges. [^C] to exit without saving" << std::endl;
         std::cin.get();
         // save trajectory
-        SLAM.SaveTrajectoryTUM(init.pathScene / "trajectory.txt");
+        SLAM.SaveKeyFrameTrajectoryTUM(init.pathScene / "trajectory.txt");
         std::cout << "Finished saving camera trajectory" << std::endl;
         // save edges
-        std::set<std::pair<double, double>> edges;
+        std::set<std::tuple<bool, double, double>> edges;
         if(!extract_edges_from_atlas(SLAM.mpAtlas, edges)) {
             log_err("Failed to extract graph edges from Atlas");
             return 1;
@@ -60,14 +60,15 @@ int main(int argc, char* argv[]) {
         std::cout << "Saving graph edges to " << pathEdges << " ..." << std::endl;
         writer.imbue(std::locale::classic());
         writer << std::fixed << std::setprecision(10);
-        for(const auto& e : edges) writer << e.first << " " << e.second << std::endl;
+        for(const auto& e : edges) 
+            writer << (std::get<0>(e) ? "1" : "0") << " " << std::get<1>(e) << " " << std::get<2>(e) << std::endl;
         writer.close();
         std::cout << "Finished saving graph edges" << std::endl;
     }
     return 0;
 }
 
-bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double, double>>& edges) {
+bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edges) {
     std::vector<ORB_SLAM3::Map*> maps = atlas->GetAllMaps();
     for(ORB_SLAM3::Map* map : maps) {
         std::vector<ORB_SLAM3::KeyFrame*> keyframes = map->GetAllKeyFrames();
@@ -81,19 +82,19 @@ bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double
                 double fj_timestamp = parent->mTimeStamp;
                 if (fi != fj)
                 {
-                    auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edges.insert(p);
+                    auto [fst, snd] = std::minmax(fi_timestamp, fj_timestamp);
+                    edges.insert(std::make_tuple(false, fst, snd));
                 }
             }
             for(ORB_SLAM3::KeyFrame* loopKF : kf->GetLoopEdges()) {
                 int fj = loopKF->mnFrameId;
                 double fj_timestamp = loopKF->mTimeStamp;
                 if (fi != fj) {
-                    auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edges.insert(p);
+                    auto [fst, snd] = std::minmax(fi_timestamp, fj_timestamp);
+                    edges.insert(std::make_tuple(true, fst, snd));
                 }
             }
-
+#if 0
             for(ORB_SLAM3::KeyFrame* connKF : kf->GetConnectedKeyFrames()) {
                 int fj = connKF->mnFrameId;
                 double fj_timestamp = connKF->mTimeStamp;
@@ -102,6 +103,7 @@ bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::pair<double
                     edges.insert(p);
                 }
             }
+#endif
         }
     }
     return true;

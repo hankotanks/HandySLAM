@@ -12,13 +12,17 @@ import glob
 # discard all points with confidence < this value
 CONFIDENCE_THRESHOLD = 2
 # size of voxels to use in registration
-VOXEL_SIZE = 0.04 # 2cm
+VOXEL_SIZE = 0.02 # 2cm
 # visualize the full pose graph instead of performing registration
 VISUALIZE_GRAPH = False
 # unload point clouds before running multiway registration
 REDUCE_MEMORY_USAGE = True 
 # number of points to write before splitting the cloud
-POINTS_PER_CLOUD = 5_000_000
+# POINTS_PER_CLOUD = 10_000_000
+# toggle multiway registration
+OPTIMIZE_POSES = True
+# maximum depth to use for registration (meters)
+MAX_DEPTH = 3.0
 
 if VISUALIZE_GRAPH:
     import networkx as nx
@@ -104,6 +108,9 @@ class Frame:
         if frame_confidence is None: 
             raise IOError(f"Could not read depthmap {self.frame_idx} of {path_confidence_frame}")
         frame_confidence = frame_confidence.astype(np.float32)
+        if frame_confidence.shape != frame_depth.shape:
+            print("Resizing confidence frame")
+            frame_confidence = cv2.resize(frame_confidence, frame_depth.shape, interpolation = cv2.INTER_LINEAR)
         # project depthmap to point cloud
         frame_depth_rows, frame_depth_cols = frame_depth.shape
         frame_depth_fx = FX * frame_depth_cols / CAP_W
@@ -114,7 +121,7 @@ class Frame:
         u = u.flatten()
         v = v.flatten()
         z = frame_depth.flatten()
-        z_filter = (z > 0) & (frame_confidence.flatten() >= CONFIDENCE_THRESHOLD)
+        z_filter = (z > 0.0) & (z < MAX_DEPTH) & (frame_confidence.flatten() >= CONFIDENCE_THRESHOLD)
         u = u[z_filter]
         v = v[z_filter]
         z = z[z_filter]
@@ -162,13 +169,16 @@ if FRAMES is None:
 path_edges = os.path.join(path_scene, "edges.txt")
 if not os.path.exists(path_edges): raise IOError(f"Failed to find {path_edges}")
 
-edges = np.loadtxt(path_edges, usecols = [0, 1])
-if edges.shape[1] != 2: raise IOError(f"{path_edges} was malformed")
+# expects 0 timestamp1 timestamp2 or normal edges
+# expects 1 timestamp1 timestamp2 for loop closure edges
+edges_raw = np.loadtxt(path_edges, usecols = [0, 1, 2])
+if edges_raw.shape[1] != 3: raise IOError(f"{path_edges} was malformed")
 
-EDGES_CLOSURES = np.argmin(np.abs(edges[:, :, None] - STAMPS[:, 0][None, None, :]), axis = 2)
-
-EDGES_ADJACENT = np.array([[i, i+1] for i in range(EDGES_CLOSURES.min(), max(FRAMES.keys()))])
-EDGES_CLOSURES = EDGES_CLOSURES[np.abs(EDGES_CLOSURES[:, 0] - EDGES_CLOSURES[:, 1]) != 1]
+EDGES = np.argmin(np.abs(edges_raw[:, 1:][:, :, None] - STAMPS[:, 0][None, None, :]), axis = 2)
+EDGES_CLOSURES = EDGES[edges_raw[:, 0].astype(np.int32) == 1]
+EDGES_ADJACENT = EDGES[edges_raw[:, 0].astype(np.int32) == 0]
+if(EDGES_ADJACENT.shape[0] + EDGES_CLOSURES.shape[0] != EDGES.shape[0]):
+    raise IOError(f"{path_edges} was malformed")
 
 def calculate_robust_kernel_scale():
     residuals = []
@@ -190,74 +200,159 @@ def calculate_robust_kernel_scale():
 
     return scale
 
-if VISUALIZE_GRAPH:
-    print("Clustering edge graph")
-    G = nx.Graph()
-    for frame_idx in FRAMES.keys(): G.add_node(frame_idx)
-    for edge in EDGES_ADJACENT: G.add_edge(edge[0], edge[1])
-    for edge in EDGES_CLOSURES: G.add_edge(edge[0], edge[1])
-    G_pos = nx.spring_layout(G, seed = 42, k = 0.5, iterations = 200, scale = 2.0)
-    nx.draw_networkx_nodes(G, G_pos, cmap = plt.cm.tab20, node_size = 20)
-    nx.draw_networkx_edges(G, G_pos, alpha = 0.3)
-    plt.axis('off')
-    plt.show()
-    exit(0)
+def calcuate_radius(pcd):
+    pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+    pt = np.asarray(pcd.points)[0]
+    _, idx, dist = pcd_tree.search_knn_vector_3d(pt, 2)
+    return np.sqrt(dist[1])
 
 MAX_CORRESPONDENCE_DISTANCE = VOXEL_SIZE * 1.5
 
-POSE_GRAPH = o3d.pipelines.registration.PoseGraph()
+if VISUALIZE_GRAPH:
+    print("Clustering edge graph")
+    G = nx.Graph()
+    for frame_idx in FRAMES.keys(): 
+        G.add_node(frame_idx, pos = FRAMES[frame_idx].pose[0:3, 3])
+    for edge in EDGES_ADJACENT: G.add_edge(edge[0], edge[1])
+    for edge in EDGES_CLOSURES: G.add_edge(edge[0], edge[1])
+    
 
-FRAME_MAP = {}
-frame_count = 0
-for frame_idx, frame in FRAMES.items():
-    POSE_GRAPH.nodes.append(o3d.pipelines.registration.PoseGraphNode(np.linalg.inv(frame.pose)))
-    FRAME_MAP[frame_idx] = frame_count
-    frame_count += 1
+    count = 0
+    final = None
+    while len(list(G.nodes)) > 1:
+        dist_min = float('inf')
+        edge_min = None
+        for u, v in G.edges:
+            dist = np.linalg.norm(G.nodes[u]['pos'] - G.nodes[v]['pos'])
+            if dist < dist_min:
+                dist_min = dist
+                edge_min = (u, v)
 
-def append_edges(edges, uncertain):
-    for edge in edges:
-        frame_fst = FRAMES[edge[0]]
-        frame_snd = FRAMES[edge[1]]
-        frame_fst_idx = FRAME_MAP[frame_fst.frame_idx]
-        frame_snd_idx = FRAME_MAP[frame_snd.frame_idx]
-        POSE_GRAPH.edges.append(o3d.pipelines.registration.PoseGraphEdge(
-            frame_fst_idx, frame_snd_idx, 
-            np.linalg.inv(frame_snd.pose) @ frame_fst.pose, 
-            np.identity(6), uncertain = uncertain))
+        frame_fst = FRAMES[edge_min[0]]
+        frame_snd = FRAMES[edge_min[1]]
+        pcd_fst = o3d.geometry.PointCloud()
+        pcd_fst.points = o3d.utility.Vector3dVector(frame_fst.get_transformed_points(frame_fst.pose))
+        pcd_fst.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = calcuate_radius(pcd_fst), max_nn = 30))
+        pcd_fst.orient_normals_consistent_tangent_plane(k = 20)
+        pcd_snd = o3d.geometry.PointCloud()
+        pcd_snd.points = o3d.utility.Vector3dVector(frame_snd.get_transformed_points(frame_snd.pose))
+        pcd_snd.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = calcuate_radius(pcd_snd), max_nn = 30))
+        pcd_snd.orient_normals_consistent_tangent_plane(k = 20)
+        result = o3d.pipelines.registration.registration_icp(
+            pcd_fst, pcd_snd,
+            max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE,
+            estimation_method = o3d.pipelines.registration.TransformationEstimationPointToPlane())
 
-append_edges(EDGES_ADJACENT, False)
-append_edges(EDGES_CLOSURES, True)
+        frame_fst.points = np.vstack([
+            frame_fst.points, 
+            frame_snd.get_transformed_points(np.linalg.inv(frame_fst.pose) @ result.transformation @ frame_snd.pose)])
+        for neighbor in G.neighbors(edge_min[1]):
+            if neighbor != edge_min[0]:
+                G.add_edge(neighbor, edge_min[0])
+        G.remove_node(edge_min[1])
 
-if REDUCE_MEMORY_USAGE:
-    print(f"Unloading {os.path.basename(path_blob)} to reduce memory usage")
-    for frame in FRAMES.values():
-        frame.points = None
-        frame.colors = None
+        print(f"Merged {edge_min[1]} to {edge_min[0]}. Graph contains {len(list(G.nodes))} nodes")
+        final = edge_min[0]
 
-options = o3d.pipelines.registration.GlobalOptimizationOption(
-    max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE,
-    edge_prune_threshold = calculate_robust_kernel_scale(),
-    reference_node = 0,
-    preference_loop_closure = 2.0)
-with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-    o3d.pipelines.registration.global_optimization(
-        POSE_GRAPH,
-        o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
-        o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
-        options)
+        count += 1
+        if count % 3 == 0:
+            largest = 0
+            largest_idx = None
+            for frame in FRAMES.values():
+                if frame.points.shape[0] > largest:
+                    largest = frame.points.shape[0]
+                    largest_idx = frame.frame_idx
+
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(FRAMES[largest_idx].points)
+
+            o3d.visualization.draw_geometries([pcd])
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(FRAMES[final].points)
+
+    o3d.visualization.draw_geometries([pcd])
+    
+    # plt.show()
+    exit(0)
 
 POSES = {}
-for frame in FRAMES.values():
-    if frame.frame_idx not in FRAME_MAP: 
-        raise Exception(f"Frame {frame.frame_idx} had no equivalent node in pose graph")
-    pose = POSE_GRAPH.nodes[FRAME_MAP[frame.frame_idx]].pose
-    POSES[frame.frame_idx] = copy.deepcopy(pose)
+if OPTIMIZE_POSES:
+    POSE_GRAPH = o3d.pipelines.registration.PoseGraph()
 
-if REDUCE_MEMORY_USAGE:
-    print(f"Unloading pose graph")
-    POSE_GRAPH = None
-    print(f"Loading {os.path.basename(path_blob)}")
-    with open(path_blob, "rb") as f: FRAMES = pickle.load(f)
+    FRAME_MAP = {}
+    frame_count = 0
+    for frame_idx, frame in FRAMES.items():
+        # POSE_GRAPH.nodes.append(o3d.pipelines.registration.PoseGraphNode(np.eye(4)))
+        POSE_GRAPH.nodes.append(o3d.pipelines.registration.PoseGraphNode(frame.pose))
+        FRAME_MAP[frame_idx] = frame_count
+        frame_count += 1
+
+    def append_edges(edges, uncertain, pairwise):
+        for edge in tqdm.tqdm(edges, f"Adding {'uncertain' if uncertain else 'certain'} edges"):
+            frame_fst = FRAMES[edge[0]]
+            frame_snd = FRAMES[edge[1]]
+            frame_fst_idx = FRAME_MAP[frame_fst.frame_idx]
+            frame_snd_idx = FRAME_MAP[frame_snd.frame_idx]
+            edge_transformation = np.linalg.inv(frame_snd.pose) @ frame_fst.pose
+            edge_information = np.identity(6)
+            if pairwise:
+                pcd_fst = o3d.geometry.PointCloud()
+                pcd_fst.points = o3d.utility.Vector3dVector(frame_fst.points)
+                pcd_fst.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = calcuate_radius(pcd_fst), max_nn = 30))
+                pcd_fst.orient_normals_consistent_tangent_plane(k = 20)
+                # pcd_fst.points = o3d.utility.Vector3dVector(frame_fst.get_transformed_points(frame_fst.pose))
+                pcd_snd = o3d.geometry.PointCloud()
+                pcd_snd.points = o3d.utility.Vector3dVector(frame_snd.points)
+                pcd_snd.estimate_normals(search_param = o3d.geometry.KDTreeSearchParamHybrid(radius = calcuate_radius(pcd_snd), max_nn = 30))
+                pcd_snd.orient_normals_consistent_tangent_plane(k = 20)
+                # pcd_snd.points = o3d.utility.Vector3dVector(frame_snd.get_transformed_points(frame_snd.pose))
+                result = o3d.pipelines.registration.registration_icp(
+                    pcd_fst, pcd_snd,
+                    max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE,
+                    init = np.linalg.inv(frame_snd.pose) @ frame_fst.pose,
+                    estimation_method = o3d.pipelines.registration.TransformationEstimationPointToPlane())
+                edge_transformation = result.transformation
+                edge_information = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+                    pcd_fst, pcd_snd, 
+                    max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE, 
+                    transformation = edge_transformation)
+
+            POSE_GRAPH.edges.append(o3d.pipelines.registration.PoseGraphEdge(
+                frame_fst_idx, frame_snd_idx, 
+                edge_transformation, 
+                edge_information, uncertain = uncertain))
+
+    append_edges(EDGES_ADJACENT, False, True)
+    append_edges(EDGES_CLOSURES, True, False)
+
+    if REDUCE_MEMORY_USAGE:
+        print(f"Unloading {os.path.basename(path_blob)} to reduce memory usage")
+        for frame in FRAMES.values():
+            frame.points = None
+            frame.colors = None
+
+    options = o3d.pipelines.registration.GlobalOptimizationOption(
+        max_correspondence_distance = MAX_CORRESPONDENCE_DISTANCE,
+        edge_prune_threshold = calculate_robust_kernel_scale(),
+        reference_node = 0)
+    with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug):
+        o3d.pipelines.registration.global_optimization(
+            POSE_GRAPH,
+            o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
+            o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
+            options)
+
+    for frame in FRAMES.values():
+        if frame.frame_idx not in FRAME_MAP: 
+            raise Exception(f"Frame {frame.frame_idx} had no equivalent node in pose graph")
+        POSES[frame.frame_idx] = copy.deepcopy(POSE_GRAPH.nodes[FRAME_MAP[frame.frame_idx]].pose)
+
+    if REDUCE_MEMORY_USAGE:
+        print(f"Unloading pose graph")
+        POSE_GRAPH = None
+        print(f"Loading {os.path.basename(path_blob)}")
+        with open(path_blob, "rb") as f: FRAMES = pickle.load(f)
 
 class Output:
     _id = 0
@@ -270,43 +365,46 @@ class Output:
         self.colors = []
         self.timestamps = []
         self.labels = []
+        self.cloud = None
 
     def append(self, frame_idx):
+        if self.cloud is not None:
+            raise Exception("Cannot call Output.append after calling Output.build")
+
         self.indices.append(frame_idx)
         frame_entries = FRAMES[frame_idx].points.shape[0]
         self.entries += frame_entries
 
-        self.positions.append(FRAMES[frame_idx].get_transformed_points(POSES[FRAMES[frame_idx].frame_idx]))
+        self.positions.append(FRAMES[frame_idx].get_transformed_points(FRAMES[frame_idx].pose))
         self.colors.append(FRAMES[frame_idx].colors)
         self.timestamps.append(np.repeat(FRAMES[frame_idx].t, frame_entries)[:, np.newaxis])
         self.labels.append(np.repeat(FRAMES[frame_idx].frame_idx, frame_entries)[:, np.newaxis].astype(np.int32))
 
-        if self.entries < POINTS_PER_CLOUD: return False
-        
-        path_out = os.path.join(path_scene, f"out_{self.id:03}.ply")
-        print(f"Writing {len(self.indices)} frames to {os.path.basename(path_out)}")
-
+    def build(self):
         device = o3d.core.Device("CPU:0")
 
-        pcd = o3d.t.geometry.PointCloud(device)
-        pcd.point.positions = o3d.core.Tensor(np.vstack(self.positions), o3d.core.float32, device)
-        pcd.point.colors = o3d.core.Tensor(np.vstack(self.colors), o3d.core.float32, device)
-        pcd.point.timestamps = o3d.core.Tensor(np.vstack(self.timestamps), o3d.core.float32, device)
-        pcd.point.labels = o3d.core.Tensor(np.vstack(self.labels), o3d.core.int32, device)
-
-        o3d.t.io.write_point_cloud(path_out, pcd)
+        self.cloud = o3d.t.geometry.PointCloud(device)
+        self.cloud.point.positions = o3d.core.Tensor(np.vstack(self.positions), o3d.core.float32, device)
+        self.cloud.point.colors = o3d.core.Tensor(np.vstack(self.colors), o3d.core.float32, device)
+        self.cloud.point.timestamps = o3d.core.Tensor(np.vstack(self.timestamps), o3d.core.float32, device)
+        self.cloud.point.labels = o3d.core.Tensor(np.vstack(self.labels), o3d.core.int32, device)
 
         if REDUCE_MEMORY_USAGE:
             for frame_idx in self.indices:
                 FRAMES[frame_idx].points = None
                 FRAMES[frame_idx].colors = None
-        
-        return True
+    
+    def write(self):
+        path_out = os.path.join(path_scene, f"out_{self.id:03}.ply")
+        o3d.t.io.write_point_cloud(path_out, self.cloud)
 
 print("Removing old scene reconstruction")
 for path_out_old in glob.glob(os.path.join(path_scene, "out_[0-9][0-9][0-9].ply")):
     os.remove(path_out_old)
 
 out = Output()
-for frame_idx in tqdm.tqdm(FRAMES.keys(), f"Building {os.path.basename(path_blob)}"):
-    if out.append(frame_idx): out = Output()
+for frame_idx in tqdm.tqdm(FRAMES.keys(), f"Writing Cloud"):
+    out.append(frame_idx)
+
+out.build()
+out.write()
