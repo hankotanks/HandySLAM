@@ -1,12 +1,19 @@
 #!/bin/bash
+
+echo "Initializing submodules"
+
 git submodule update --init --recursive
-cd Pangolin
-./scripts/install_prerequisites.sh --dry-run required
-cmake -B build && cmake --build build
-cd ..
-chmod +x ./scripts/build_orb_slam3.sh
+
+echo "Building ORB_SLAM3"
+
 cd ORB_SLAM3
-sed -i 's/++11/++14/g' CMakeLists.txt
-../scripts/build_orb_slam3.sh
+chmod +x ./build.sh
+./build.sh
+
 cd ..
-cmake -B build
+
+echo "Building HandySLAM"
+
+mkdir -p build 
+cd build
+cmake ..
