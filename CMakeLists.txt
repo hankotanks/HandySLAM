@@ -13,14 +13,19 @@ find_package(Eigen3 3.3 REQUIRED)
 set(Pangolin_DIR "${PROJECT_SOURCE_DIR}/ORB_SLAM3/Pangolin/build")
 find_package(Pangolin REQUIRED)
 find_package(OpenCV 4.4 REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(lz4 REQUIRED IMPORTED_TARGET liblz4)
 
 add_executable(HandySLAM 
     src/main.cpp
     src/Initializer.cpp
     src/DataloaderStray.cpp
+    src/DataloaderScanNet.cpp
     src/Dataloader.cpp)
 
-target_compile_definitions(HandySLAM PRIVATE PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
+target_compile_definitions(HandySLAM PRIVATE 
+    PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
 set(VOCAB_PATH "${PROJECT_SOURCE_DIR}/ORB_SLAM3/Vocabulary/ORBvoc.txt")
 set(PROJECT_ROOT "${PROJECT_SOURCE_DIR}")
@@ -37,5 +42,12 @@ target_include_directories(HandySLAM
         ${PROJECT_SOURCE_DIR}/ORB_SLAM3/Thirdparty/Sophus
         ${OpenCV_INCLUDE_DIRS}
         ${Pangolin_INCLUDE_DIRS})
-target_link_directories(HandySLAM PRIVATE ${PROJECT_SOURCE_DIR}/ORB_SLAM3/lib)
-target_link_libraries(HandySLAM PRIVATE Eigen3::Eigen ${Pangolin_LIBRARIES} ORB_SLAM3 ${OpenCV_LIBS})
+target_link_directories(HandySLAM PRIVATE 
+    ${PROJECT_SOURCE_DIR}/ORB_SLAM3/lib)
+target_link_libraries(HandySLAM PRIVATE 
+    ZLIB::ZLIB 
+    PkgConfig::lz4 
+    Eigen3::Eigen 
+    ${Pangolin_LIBRARIES} 
+    ORB_SLAM3 
+    ${OpenCV_LIBS})

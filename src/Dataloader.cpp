@@ -129,6 +129,13 @@ namespace HandySLAM {
         writer << "Camera1.fy: " << metadata_->intrinsics.fy << std::endl;
         writer << "Camera1.cx: " << metadata_->intrinsics.cx << std::endl;
         writer << "Camera1.cy: " << metadata_->intrinsics.cy << std::endl;
+        if(metadata_->intrinsics.distortion) {
+            writer << "Camera1.k1: " << metadata_->intrinsics.distortion->k1 << std::endl;
+            writer << "Camera1.k2: " << metadata_->intrinsics.distortion->k2 << std::endl;
+            writer << "Camera1.k3: 0.0" << std::endl;
+            writer << "Camera1.p1: " << metadata_->intrinsics.distortion->p1 << std::endl;
+            writer << "Camera1.p2: " << metadata_->intrinsics.distortion->p2 << std::endl;
+        }
         writer << "Camera.width: "     << metadata_->sizeIm.width << std::endl;
         writer << "Camera.height: "    << metadata_->sizeIm.height << std::endl;
         if(!Initializer::get().usingMono) {
@@ -155,7 +162,7 @@ namespace HandySLAM {
             }
         }
         writer << " ]" << std::endl;
-        writer << "IMU.InsertKFsWhenLost: 1" << std::endl;
+        writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
         writer << "IMU.NoiseGyro: " << profile_->gyroscope_noise_density << std::endl;
         writer << "IMU.NoiseAcc: "  << profile_->accelerometer_noise_density << std::endl; 
         writer << "IMU.GyroWalk: "  << profile_->gyroscope_random_walk << std::endl; 

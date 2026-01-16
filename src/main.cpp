@@ -12,6 +12,7 @@
 #include "Config.h"
 #include "Dataloader.h"
 #include "DataloaderStray.h"
+#include "DataloaderScanNet.h"
 #include "Initializer.h"
 
 bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edge_set);
@@ -19,6 +20,7 @@ bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool,
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
     HandySLAM::Initializer::add<HandySLAM::DataloaderStray>("stray");
+    HandySLAM::Initializer::add<HandySLAM::DataloaderScanNet>("scannetpp");
     // build dataloader
     HandySLAM::Dataloader* data = HandySLAM::Initializer::init(argc, argv);
     if(!data) {

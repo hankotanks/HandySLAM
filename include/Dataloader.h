@@ -20,11 +20,16 @@ namespace HandySLAM {
         bool vImuMeasValidate(double timestampPrev) const;
     };
 
+    struct DistortionParams {
+        double k1, k2, p1, p2;
+    };
+
     struct Intrinsics {
         double fx;
         double fy;
         double cx;
         double cy;
+        std::optional<DistortionParams> distortion;
     };
 
     struct Profile {
