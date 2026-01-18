@@ -129,6 +129,13 @@ namespace HandySLAM {
         writer << "Camera1.fy: " << metadata_->intrinsics.fy << std::endl;
         writer << "Camera1.cx: " << metadata_->intrinsics.cx << std::endl;
         writer << "Camera1.cy: " << metadata_->intrinsics.cy << std::endl;
+        if(metadata_->intrinsics.distortion) {
+            writer << "Camera1.k1: " << metadata_->intrinsics.distortion->k1 << std::endl;
+            writer << "Camera1.k2: " << metadata_->intrinsics.distortion->k2 << std::endl;
+            writer << "Camera1.k3: 0.0" << std::endl;
+            writer << "Camera1.p1: " << metadata_->intrinsics.distortion->p1 << std::endl;
+            writer << "Camera1.p2: " << metadata_->intrinsics.distortion->p2 << std::endl;
+        }
         writer << "Camera.width: "     << metadata_->sizeIm.width << std::endl;
         writer << "Camera.height: "    << metadata_->sizeIm.height << std::endl;
         if(!Initializer::get().usingMono) {
@@ -165,8 +172,8 @@ namespace HandySLAM {
         writer << "ORBextractor.nFeatures: 2500" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;
         writer << "ORBextractor.nLevels: 8" << std::endl;
-        writer << "ORBextractor.iniThFAST: 20" << std::endl;
-        writer << "ORBextractor.minThFAST: 7" << std::endl;
+        writer << "ORBextractor.iniThFAST: 15" << std::endl;
+        writer << "ORBextractor.minThFAST: 5" << std::endl;
         writer << "Viewer.KeyFrameSize: 0.05" << std::endl;
         writer << "Viewer.KeyFrameLineWidth: 1.0" << std::endl;
         writer << "Viewer.GraphLineWidth: 0.9" << std::endl;

@@ -44,47 +44,47 @@ namespace {
             log_err("Failed to open [", pathCameraMatrix, "].");
             throw std::exception();
         }
+        // read the relevant intrinsics
+        HandySLAM::Intrinsics intrinsics;
         // get first row
         std::stringstream stream;
         if(!readLine(reader, stream))
-            goto parse_camera_matrix_fail;
-        // read the relevant intrinsics
-        HandySLAM::Intrinsics intrinsics;
+            goto fail;
         // row: 0, col: 0
         if(!parse<double>(stream, intrinsics.fx))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 0, col: 1
         double dummy;
         if(!parse<double>(stream, dummy))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 0, col: 2
         if(!parse<double>(stream, intrinsics.cx, true))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // get second row
         if(!readLine(reader, stream))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 1, col: 0
         if(!parse<double>(stream, dummy))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 1, col: 1
         if(!parse<double>(stream, intrinsics.fy))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 1, col: 2
         if(!parse<double>(stream, intrinsics.cy, true))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // get third row
         if(!readLine(reader, stream))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 2, col: 0
         if(!parse<double>(stream, dummy))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 2, col: 1
         if(!parse<double>(stream, dummy))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // row: 2, col: 2
         double scalar;
         if(!parse<double>(stream, scalar))
-            goto parse_camera_matrix_fail;
+            goto fail;
         // adjust by scalar (although should always be 1.0)
         intrinsics.fx /= scalar;
         intrinsics.fy /= scalar;
@@ -92,8 +92,8 @@ namespace {
         intrinsics.cy /= scalar;
         // return intrinsics
         return intrinsics;
-parse_camera_matrix_fail:
-        log_err("Failed to parse [", pathCameraMatrix, "].");
+fail:
+        log_err("Failed to parse:", pathCameraMatrix);
         throw std::exception();
     }
 } // private scope
@@ -120,7 +120,7 @@ namespace HandySLAM {
         // open RGB video capture
         cap_ = cv::VideoCapture(pathRGB_);
         if(!cap_.isOpened()) {
-            log_err("Failed to open ", pathRGB_, "].");
+            log_err("Failed to open:", pathRGB_);
             throw std::exception();
         }
         // read RGB video's fps
@@ -140,7 +140,7 @@ namespace HandySLAM {
         ASSERT_PATH_EXISTS(pathOdom_);
         readerOdom_ = std::ifstream(pathOdom_, std::ios::binary);
         if(!readerOdom_.is_open()) {
-            log_err("Failed to open ", pathOdom_, "].");
+            log_err("Failed to open:", pathOdom_);
             throw std::exception();
         }
         std::string temp;
@@ -150,7 +150,7 @@ namespace HandySLAM {
         ASSERT_PATH_EXISTS(pathIMU_);
         readerIMU_ = std::ifstream(pathIMU_, std::ios::binary);
         if(!readerIMU_.is_open()) {
-            log_err("Failed to open ", pathIMU_, "].");
+            log_err("Failed to open:", pathIMU_);
             throw std::exception();
         }
         std::getline(readerIMU_, temp);
@@ -217,7 +217,7 @@ namespace HandySLAM {
     std::optional<cv::Mat> DataloaderStray::im() noexcept {
         cv::Mat im;
         if(!cap_.read(im)) {
-            log_err("Failed to get RGB imagery on frame", frameIdx_, ".");
+            log_err("Failed to get RGB imagery on frame:", frameIdx_);
             return std::nullopt;
         }
         return im;
@@ -233,7 +233,7 @@ namespace HandySLAM {
         // read depth map
         cv::Mat depthmap = cv::imread(pathDepthFrame, cv::IMREAD_UNCHANGED);
         if(depthmap.data == nullptr) {
-            log_err("Failed to get depth map on frame", frameIdx_, ".");
+            log_err("Failed to get depth map on frame:", frameIdx_);
             return std::nullopt;
         }
         return depthmap;
