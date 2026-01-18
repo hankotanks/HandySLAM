@@ -1,3 +1,6 @@
 [submodule "ORB_SLAM3"]
 	path = ORB_SLAM3
 	url = https://github.com/hankotanks/ORB_SLAM3.git
+[submodule "Open3D"]
+	path = Open3D
+	url = https://github.com/hankotanks/Open3D.git

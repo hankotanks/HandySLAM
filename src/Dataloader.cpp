@@ -162,7 +162,7 @@ namespace HandySLAM {
             }
         }
         writer << " ]" << std::endl;
-        writer << "IMU.InsertKFsWhenLost: 0" << std::endl;
+        writer << "IMU.InsertKFsWhenLost: 1" << std::endl;
         writer << "IMU.NoiseGyro: " << profile_->gyroscope_noise_density << std::endl;
         writer << "IMU.NoiseAcc: "  << profile_->accelerometer_noise_density << std::endl; 
         writer << "IMU.GyroWalk: "  << profile_->gyroscope_random_walk << std::endl; 
@@ -172,8 +172,8 @@ namespace HandySLAM {
         writer << "ORBextractor.nFeatures: 2500" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;
         writer << "ORBextractor.nLevels: 8" << std::endl;
-        writer << "ORBextractor.iniThFAST: 20" << std::endl;
-        writer << "ORBextractor.minThFAST: 7" << std::endl;
+        writer << "ORBextractor.iniThFAST: 15" << std::endl;
+        writer << "ORBextractor.minThFAST: 5" << std::endl;
         writer << "Viewer.KeyFrameSize: 0.05" << std::endl;
         writer << "Viewer.KeyFrameLineWidth: 1.0" << std::endl;
         writer << "Viewer.GraphLineWidth: 0.9" << std::endl;

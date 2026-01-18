@@ -14,6 +14,7 @@
 #include "DataloaderStray.h"
 #include "DataloaderScanNet.h"
 #include "Initializer.h"
+#include "Output.h"
 
 bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edge_set);
 
@@ -32,15 +33,21 @@ int main(int argc, char* argv[]) {
     {
         ORB_SLAM3::System SLAM(VOCAB_PATH, data->strSettingsFile(), init.sensor());
         // iterate through frames
+        std::vector<HandySLAM::Frame> frames;
         for(HandySLAM::Frame& frameCurr : *data) {
             if(init.usingMono) {
                 SLAM.TrackMonocular(frameCurr.im, frameCurr.timestamp, frameCurr.vImuMeas);
             } else {
                 SLAM.TrackRGBD(frameCurr.im, frameCurr.depthmap, frameCurr.timestamp, frameCurr.vImuMeas); 
             }
+            frames.push_back(frameCurr);
         }
-        SLAM.Shutdown();
-        while(!SLAM.isShutDown()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+#if 1
+        SLAM.ShutdownAndWait();
+        HandySLAM::Output out(SLAM, argc, argv);
+        
+        exit(0);
+#endif
         // wait for input before closing the visualizer
         std::cout << "Press ENTER to save camera trajectory and graph edges. [^C] to exit without saving" << std::endl;
         std::cin.get();
