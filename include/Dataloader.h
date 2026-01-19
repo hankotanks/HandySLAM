@@ -7,6 +7,7 @@
 
 #include <System.h>
 
+#include "Profile.h"
 #include "util.h"
 
 namespace HandySLAM {
@@ -18,36 +19,6 @@ namespace HandySLAM {
         std::vector<ORB_SLAM3::IMU::Point> vImuMeas;
         // validation
         bool vImuMeasValidate(double timestampPrev) const;
-    };
-
-    struct DistortionParams {
-        double k1, k2, p1, p2;
-    };
-
-    struct Intrinsics {
-        double fx;
-        double fy;
-        double cx;
-        double cy;
-        std::optional<DistortionParams> distortion;
-    };
-
-    struct Profile {
-        std::string name;
-        Eigen::Matrix4d T_cam_imu;
-        double update_rate;
-        double gyroscope_noise_density;
-        double gyroscope_random_walk;   
-        double accelerometer_noise_density;
-        double accelerometer_random_walk;  
-        double timeshift_cam_imu;
-        // parser
-        Profile(const std::string& profileName);
-    private:
-        struct {
-            Intrinsics intrinsics;
-            cv::Size resolution;
-        } unused;
     };
 
     struct SceneMetadata {
@@ -62,6 +33,8 @@ namespace HandySLAM {
         Dataloader(const std::filesystem::path& pathScene);
         Dataloader(const std::filesystem::path& pathScene, const std::string& profileName);
         const std::string strSettingsFile();
+        const Intrinsics& intrinsics() const { return metadata_->intrinsics; }
+        const std::filesystem::path& pathScene() const { return pathScene_; }
         virtual const std::optional<Frame> next() noexcept = 0;
     protected:
         std::filesystem::path pathScene_;

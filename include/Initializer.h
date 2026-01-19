@@ -18,7 +18,10 @@ namespace HandySLAM {
         Initializer& operator=(const Initializer&) = delete;
         Initializer& operator=(Initializer&&) = delete;
     private:
-        Initializer(int argc, char* argv[]) : argc_(argc), argv_(argv), usingImu(false), usingMono(false) {
+        Initializer(int argc, char* argv[]) : 
+            argc_(argc), argv_(argv), 
+            usingImu(false), usingMono(false), 
+            saveVolume(false), voxelSize(0.01), depthCutoff(4.0) {
             std::string loaderDoc = "must be one of [";
             std::size_t i = 0;
             for(const auto& it : Initializer::loaders_) {
@@ -38,20 +41,24 @@ namespace HandySLAM {
             clipp::parsing_result res = clipp::parse(std::min(argc_, 3), argv_, cli_);
             cli_.push_back(clipp::option("--imu").set(usingImu).doc("enable IMU-integration"));
             cli_.push_back(clipp::option("--mono").set(usingMono).doc("use only color imagery"));
+            cli_.push_back(clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume"));
+            cli_.push_back(clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize)),
+            cli_.push_back(clipp::option("--depth-cutoff").doc("depth threshold for TSDF") &clipp::value("threshold", depthCutoff));
             if(!res) {
                 std::cout << clipp::make_man_page(cli_, argv_[0]) << std::endl;
-                throw std::exception();
+                throw std::runtime_error("Failed to parse CLI arguments.");
             }
             if(Initializer::loaders_.find(loaderName) == Initializer::loaders_.end()) {
                 std::cout << clipp::make_man_page(cli_, argv_[0]) << std::endl;
-                throw std::exception();
+                throw std::runtime_error("Failed to find loader.");
             }
         }
     public:
         void parse(clipp::group& options) {
-            if(!clipp::parse(argc_, argv_, cli_.push_back(options))) {
-                cli_[0] = clipp::command(loaderName);
-                std::cout << clipp::make_man_page(instance_->cli_, instance_->argv_[0]) << std::endl;
+            clipp::group cli(cli_);
+            if(!clipp::parse(argc_, argv_, cli.push_back(options))) {
+                cli[0] = clipp::command(loaderName);
+                std::cout << clipp::make_man_page(cli, instance_->argv_[0]) << std::endl;
                 throw std::exception();
             }
         }
@@ -65,8 +72,15 @@ namespace HandySLAM {
                 } else {
                     log_err("Failed to initialize Dataloader.");
                 }
-                throw std::exception();
+                throw;
             }
+            return Initializer::loaders_[instance_->loaderName]();
+        }
+
+        static Dataloader* restart(void) {
+            if(instance_ == nullptr) 
+                throw std::exception();
+
             return Initializer::loaders_[instance_->loaderName]();
         }
         
@@ -93,6 +107,9 @@ namespace HandySLAM {
         std::filesystem::path pathScene;
         bool usingImu;
         bool usingMono;
+        bool saveVolume;
+        double voxelSize;
+        double depthCutoff;
     private:
         int argc_;
         char** argv_;

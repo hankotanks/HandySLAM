@@ -1,13 +1,24 @@
 #pragma once
 
+#include <filesystem>
+
 #include <opencv2/core/mat.hpp>
 #include <sophus/se3.hpp>
+
+#include "Profile.h"
 
 namespace HandySLAM {
     class VolumeBuilder {
     public:
-        VolumeBuilder();
+        VolumeBuilder(const Intrinsics& intrinsics, double voxelSize, double depthCutoff);
         void integrateFrame(const cv::Mat& im, const cv::Mat& depthmap, const Sophus::SE3f& pose);
+        bool save(const std::filesystem::path& pathOut) const;
     private:
+        std::size_t frameIdx_;
+        Intrinsics intrinsics_;
+        double voxelSize_;
+        double depthCutoff_;
+        struct Volume;
+        std::shared_ptr<Volume> volume_;
     };
 }

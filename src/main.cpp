@@ -1,11 +1,5 @@
 #include <iostream>
 #include <filesystem>
-#include <limits>
-#include <optional>
-#include <algorithm>
-#include <thread>
-#include <chrono>
-#include <unordered_map>
 
 #include <System.h>
 
@@ -14,106 +8,66 @@
 #include "DataloaderStray.h"
 #include "DataloaderScanNet.h"
 #include "Initializer.h"
-#include "Output.h"
-
-bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edge_set);
+#include "VolumeBuilder.h"
 
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
     HandySLAM::Initializer::add<HandySLAM::DataloaderStray>("stray");
     HandySLAM::Initializer::add<HandySLAM::DataloaderScanNet>("scannetpp");
     // build dataloader
-    HandySLAM::Dataloader* data = HandySLAM::Initializer::init(argc, argv);
-    if(!data) {
+    HandySLAM::Dataloader* data;
+    try {
+        data = HandySLAM::Initializer::init(argc, argv);
+        if(!data) {
+            log_err("Failed to initialize Dataloader.");
+            return 1;
+        }
+    } catch(...) {
         log_err("Failed to initialize Dataloader.");
         return 1;
     }
+    // get handle to initializer
     const HandySLAM::Initializer& init = HandySLAM::Initializer::get();
     // perform SLAM
     {
         ORB_SLAM3::System SLAM(VOCAB_PATH, data->strSettingsFile(), init.sensor());
         // iterate through frames
-        std::vector<HandySLAM::Frame> frames;
-        for(HandySLAM::Frame& frameCurr : *data) {
+        for(HandySLAM::Frame& frame : *data) {
             if(init.usingMono) {
-                SLAM.TrackMonocular(frameCurr.im, frameCurr.timestamp, frameCurr.vImuMeas);
+                SLAM.TrackMonocular(frame.im, frame.timestamp, frame.vImuMeas);
             } else {
-                SLAM.TrackRGBD(frameCurr.im, frameCurr.depthmap, frameCurr.timestamp, frameCurr.vImuMeas); 
+                SLAM.TrackRGBD(frame.im, frame.depthmap, frame.timestamp, frame.vImuMeas); 
             }
-            frames.push_back(frameCurr);
         }
-#if 1
+        // shutdown threads (including viewer)
         SLAM.ShutdownAndWait();
-        HandySLAM::Output out(SLAM, argc, argv);
-        
-        exit(0);
-#endif
-        // wait for input before closing the visualizer
-        std::cout << "Press ENTER to save camera trajectory and graph edges. [^C] to exit without saving" << std::endl;
-        std::cin.get();
-        // save trajectory
-        SLAM.SaveKeyFrameTrajectoryTUM(init.pathScene / "trajectory.txt");
-        std::cout << "Finished saving camera trajectory" << std::endl;
-        // save edges
-        std::set<std::tuple<bool, double, double>> edges;
-        if(!extract_edges_from_atlas(SLAM.mpAtlas, edges)) {
-            log_err("Failed to extract graph edges from Atlas");
-            return 1;
+        // save a TSDF volume if it was requested
+        if(init.saveVolume) {
+            data = HandySLAM::Initializer::restart();
+            if(!data) {
+                log_err("Failed to initialize Dataloader.");
+                return 1;
+            }
+            // start volume construction
+            HandySLAM::VolumeBuilder out(data->intrinsics(), init.voxelSize, init.depthCutoff);
+            // iterate through the poses of all frames
+            Sophus::SE3f framePose;
+            for(const HandySLAM::Frame& frame : *data) {
+                if(!SLAM.GetPose(framePose, frame.timestamp)) {
+                    std::cout << frame.index << " skipped" << std::endl;
+                    continue;
+                }
+                // add frame to volume
+                out.integrateFrame(frame.im, frame.depthmap, framePose);
+            }
+            // write the completed TSDF
+            std::filesystem::path pathOut(data->pathScene() / "out.ply");
+            if(!out.save(pathOut)) {
+                log_err("Failed to build TSDF Volume");
+                return 1;
+            }
         }
-        std::filesystem::path pathEdges = init.pathScene / "edges.txt";
-        std::ofstream writer(pathEdges);
-        if(!writer) {
-            log_err("Failed to write to [", pathEdges, "].");
-            return 1;
-        }
-        std::cout << "Saving graph edges to " << pathEdges << " ..." << std::endl;
-        writer.imbue(std::locale::classic());
-        writer << std::fixed << std::setprecision(10);
-        for(const auto& e : edges) 
-            writer << (std::get<0>(e) ? "1" : "0") << " " << std::get<1>(e) << " " << std::get<2>(e) << std::endl;
-        writer.close();
-        std::cout << "Finished saving graph edges" << std::endl;
     }
     return 0;
 }
 
-bool extract_edges_from_atlas(ORB_SLAM3::Atlas* atlas, std::set<std::tuple<bool, double, double>>& edges) {
-    std::vector<ORB_SLAM3::Map*> maps = atlas->GetAllMaps();
-    for(ORB_SLAM3::Map* map : maps) {
-        std::vector<ORB_SLAM3::KeyFrame*> keyframes = map->GetAllKeyFrames();
-        
-        for(ORB_SLAM3::KeyFrame* kf : keyframes) {
-            int fi = kf->mnFrameId;
-            double fi_timestamp = kf->mTimeStamp;
-            ORB_SLAM3::KeyFrame* parent = kf->GetParent();
-            if(parent) {
-                int fj = parent->mnFrameId;
-                double fj_timestamp = parent->mTimeStamp;
-                if (fi != fj)
-                {
-                    auto [fst, snd] = std::minmax(fi_timestamp, fj_timestamp);
-                    edges.insert(std::make_tuple(false, fst, snd));
-                }
-            }
-            for(ORB_SLAM3::KeyFrame* loopKF : kf->GetLoopEdges()) {
-                int fj = loopKF->mnFrameId;
-                double fj_timestamp = loopKF->mTimeStamp;
-                if (fi != fj) {
-                    auto [fst, snd] = std::minmax(fi_timestamp, fj_timestamp);
-                    edges.insert(std::make_tuple(true, fst, snd));
-                }
-            }
-#if 0
-            for(ORB_SLAM3::KeyFrame* connKF : kf->GetConnectedKeyFrames()) {
-                int fj = connKF->mnFrameId;
-                double fj_timestamp = connKF->mTimeStamp;
-                if (fi != fj) {
-                    auto p = std::minmax(fi_timestamp, fj_timestamp);
-                    edges.insert(p);
-                }
-            }
-#endif
-        }
-    }
-    return true;
-}
