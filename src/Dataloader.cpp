@@ -144,7 +144,7 @@ namespace HandySLAM {
         }
         writer << "Camera.fps: " << metadata_->fps << std::endl;
         writer << "Camera.RGB: 1" << std::endl;
-        writer << "Stereo.ThDepth: 5.0" << std::endl;
+        writer << "Stereo.ThDepth: " << Initializer::get().maxDepth << std::endl;
         writer << "Stereo.b: 1.0" << std::endl;
         writer << "RGBD.DepthMapFactor: 1000.0" << std::endl;
         // IMU
@@ -169,10 +169,10 @@ namespace HandySLAM {
         writer << "IMU.AccWalk: "   << profile_->accelerometer_random_walk << std::endl;  
         writer << "IMU.Frequency: " << profile_->update_rate << std::endl;
         // generic parameters
-        writer << "ORBextractor.nFeatures: 2500" << std::endl;
+        writer << "ORBextractor.nFeatures: 3000" << std::endl;
         writer << "ORBextractor.scaleFactor: 1.2" << std::endl;
         writer << "ORBextractor.nLevels: 8" << std::endl;
-        writer << "ORBextractor.iniThFAST: 15" << std::endl;
+        writer << "ORBextractor.iniThFAST: 12" << std::endl;
         writer << "ORBextractor.minThFAST: 5" << std::endl;
         writer << "Viewer.KeyFrameSize: 0.05" << std::endl;
         writer << "Viewer.KeyFrameLineWidth: 1.0" << std::endl;

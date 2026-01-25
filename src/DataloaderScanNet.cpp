@@ -20,12 +20,9 @@ namespace {
 namespace HandySLAM {
     DataloaderScanNet::DataloaderScanNet(Initializer& init) : Dataloader(init.pathScene) {
         // parse args
-        std::string pathDepthUnpacked;
-        clipp::group options = {
-            clipp::option("-u", "--unpacked").doc("name of the calibration profile") &
-            clipp::value("depth_folder", pathDepthUnpacked, [&](const std::string& pathDepthUnpackedRaw) {
-                return std::filesystem::exists(pathDepthUnpackedRaw);
-            })
+        bool upscaled = false;
+        clipp::group options = clipp::group {
+            clipp::option("-u", "--upscaled").set(upscaled).doc("use larger depthmaps")
         };
         init.parse(options);
 
@@ -41,7 +38,7 @@ namespace HandySLAM {
         pathRGB_ = pathData / "rgb.mkv";
         ASSERT_PATH_EXISTS(pathRGB_);
 
-        pathDepth_ = pathDepthUnpacked.empty() ? (pathData / "depth.bin") : std::filesystem::path(pathDepthUnpacked);
+        pathDepth_ = upscaled ? std::filesystem::path(pathData / "depth_upscaled") : (pathData / "depth.bin");
         ASSERT_PATH_EXISTS(pathDepth_);
 
         std::filesystem::path pathColmap = pathData / "colmap";
@@ -94,7 +91,6 @@ namespace HandySLAM {
             meta.sizeDepthmap.width = WIDTH;
             meta.sizeDepthmap.height = HEIGHT;
         }
-        
 
         // profile
         Profile profile("iphone16pro");
@@ -218,11 +214,10 @@ namespace HandySLAM {
         } else {
             // convert to millimeters to be consistent with DataloaderStray
             float* depth = reinterpret_cast<float*>(dataRaw.data());
-            for (int y = 0; y < HEIGHT; ++y) {
-                for (int x = 0; x < WIDTH; ++x) {
+            for(int y = 0; y < HEIGHT; ++y) {
+                for(int x = 0; x < WIDTH; ++x) {
                     float val = depth[y * WIDTH + x];
-                    uint16_t mm = static_cast<uint16_t>(val * 1000.0f);
-                    depthmap.at<uint16_t>(y, x) = mm;
+                    depthmap.at<uint16_t>(y, x) = static_cast<uint16_t>(val * 1000.0f);
                 }
             }
         }
@@ -259,6 +254,7 @@ namespace HandySLAM {
         // must reintroduce gravity
         curr.vImuMeas.emplace_back(acc[0] + grav[0], acc[1] + grav[1], acc[2] + grav[2], gyro[0], gyro[1], gyro[2], curr.timestamp);
         frameIdx_++;
+        iterJSON_++;
         return curr;
     }
 }

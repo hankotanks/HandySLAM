@@ -34,6 +34,7 @@ namespace HandySLAM {
         Dataloader(const std::filesystem::path& pathScene, const std::string& profileName);
         const std::string strSettingsFile();
         const Intrinsics& intrinsics() const { return metadata_->intrinsics; }
+        const std::size_t fps() const { return metadata_->fps; }
         const std::filesystem::path& pathScene() const { return pathScene_; }
         virtual const std::optional<Frame> next() noexcept = 0;
     protected:

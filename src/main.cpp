@@ -9,6 +9,7 @@
 #include "DataloaderScanNet.h"
 #include "Initializer.h"
 #include "VolumeBuilder.h"
+#include "util.h"
 
 int main(int argc, char* argv[]) {
     // register dataloaders with the initializers
@@ -41,6 +42,13 @@ int main(int argc, char* argv[]) {
         }
         // shutdown threads (including viewer)
         SLAM.ShutdownAndWait();
+        if(SLAM.mpAtlas->GetAllMaps().size() > 1) {
+            log_err("SLAM run failed to produce a unified map.");
+            return 1;
+        }
+        std::filesystem::path pathTraj = HandySLAM::Initializer::get().pathScene / "trajectory.txt";
+        SLAM.SaveTrajectoryTUM(pathTraj);
+        std::cout << "Saved trjactory to " << pathTraj << std::endl;
         // save a TSDF volume if it was requested
         if(init.saveVolume) {
             data = HandySLAM::Initializer::restart();
@@ -49,11 +57,11 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             // start volume construction
-            HandySLAM::VolumeBuilder out(data->intrinsics(), init.voxelSize, init.depthCutoff);
+            HandySLAM::VolumeBuilder out(data->intrinsics(), init.voxelSize, init.maxDepth);
             // iterate through the poses of all frames
             Sophus::SE3f framePose;
             for(const HandySLAM::Frame& frame : *data) {
-                if(!SLAM.GetPose(framePose, frame.timestamp)) {
+                if(!SLAM.GetPose(framePose, frame.timestamp, 1.0 / static_cast<double>(data->fps()) - 1e-6)) {
                     std::cout << frame.index << " skipped" << std::endl;
                     continue;
                 }

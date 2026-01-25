@@ -24,8 +24,8 @@ namespace HandySLAM {
             tsdf_(voxel_length, sdf_trunc, open3d::pipelines::integration::TSDFVolumeColorType::RGB8) { /* STUB */ }
     };
 
-    VolumeBuilder::VolumeBuilder(const Intrinsics& intrinsics, double voxelSize, double depthCutoff) : 
-        frameIdx_(0), intrinsics_(intrinsics), voxelSize_(voxelSize), depthCutoff_(depthCutoff) {
+    VolumeBuilder::VolumeBuilder(const Intrinsics& intrinsics, double voxelSize, double maxDepth) : 
+        frameIdx_(0), intrinsics_(intrinsics), voxelSize_(voxelSize), maxDepth_(maxDepth) {
 
         std::cout << "[INFO] Began TSDF volume construction" << std::endl;
 
@@ -38,16 +38,31 @@ namespace HandySLAM {
         cv::resize(im, imResized, depthmap.size());
         cv::cvtColor(imResized, imColor, cv::COLOR_BGR2RGB);
 
-        cv::Mat depthmapFloat;
-        if(depthmap.type() != CV_32F) {
-            depthmap.convertTo(depthmapFloat, CV_32F, 1.0 / 1000.0);
-        } else depthmapFloat = depthmap;
+        cv::Mat depthmapFloat(depthmap.rows, depthmap.cols, CV_32F);
+        depthmap.convertTo(depthmapFloat, CV_32F, 1.0 / 1000.0);
 
         cv::Mat depthmapMasked = depthmapFloat.clone();
-        depthmapMasked.setTo(0.0, depthmapMasked > depthCutoff_);
+        depthmapMasked.setTo(0.0, depthmapMasked > maxDepth_);
         depthmapMasked.setTo(0.0, depthmapMasked <= 0.0);
 
-        open3d::geometry::RGBDImage image(convertImage(imColor), convertImage(depthmapMasked));
+        cv::Mat imFinal, depthmapFinal;
+        if(intrinsics_.distortion) {
+            cv::Mat K = (cv::Mat_<double>(3,3) <<
+                intrinsics_.fx, 0.0, intrinsics_.cx,
+                0.0, intrinsics_.fy, intrinsics_.cy,
+                0.0,  0.0, 1.0);
+
+            cv::Mat D = (cv::Mat_<double>(1,4) <<
+                intrinsics_.distortion->k1, intrinsics_.distortion->k2, intrinsics_.distortion->p1, intrinsics_.distortion->p2);
+
+            cv::undistort(imResized, imFinal, K, D);
+            cv::undistort(depthmapMasked, depthmapFinal, K, D);
+        } else {
+            imFinal = imResized;
+            depthmapFinal = depthmapMasked;
+        }
+        
+        open3d::geometry::RGBDImage image(convertImage(imFinal), convertImage(depthmapFinal));
 
         Intrinsics intrinsics(intrinsics_);
         double sx = static_cast<double>(depthmap.cols) / im.cols;
@@ -57,7 +72,7 @@ namespace HandySLAM {
         intrinsics.cx *= sx;
         intrinsics.cy *= sy;
 
-        open3d::camera::PinholeCameraIntrinsic intrinsicsCamera(depthmapMasked.cols, depthmapMasked.rows, 
+        open3d::camera::PinholeCameraIntrinsic intrinsicsCamera(depthmapFinal.cols, depthmapFinal.rows, 
             intrinsics.fx, intrinsics.fy, intrinsics.cx, intrinsics.cy);
 
         Eigen::Matrix4d T_cw = pose.matrix().cast<double>().inverse();

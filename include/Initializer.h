@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdexcept>
 #include <string>
 #include <exception>
 #include <filesystem>
@@ -21,7 +22,7 @@ namespace HandySLAM {
         Initializer(int argc, char* argv[]) : 
             argc_(argc), argv_(argv), 
             usingImu(false), usingMono(false), 
-            saveVolume(false), voxelSize(0.01), depthCutoff(4.0) {
+            saveVolume(false), voxelSize(0.01), maxDepth(4.0) {
             std::string loaderDoc = "must be one of [";
             std::size_t i = 0;
             for(const auto& it : Initializer::loaders_) {
@@ -43,7 +44,7 @@ namespace HandySLAM {
             cli_.push_back(clipp::option("--mono").set(usingMono).doc("use only color imagery"));
             cli_.push_back(clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume"));
             cli_.push_back(clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize)),
-            cli_.push_back(clipp::option("--depth-cutoff").doc("depth threshold for TSDF") &clipp::value("threshold", depthCutoff));
+            cli_.push_back(clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth));
             if(!res) {
                 std::cout << clipp::make_man_page(cli_, argv_[0]) << std::endl;
                 throw std::runtime_error("Failed to parse CLI arguments.");
@@ -59,7 +60,7 @@ namespace HandySLAM {
             if(!clipp::parse(argc_, argv_, cli.push_back(options))) {
                 cli[0] = clipp::command(loaderName);
                 std::cout << clipp::make_man_page(cli, instance_->argv_[0]) << std::endl;
-                throw std::exception();
+                throw std::runtime_error("Failed to parse CLI arguments.");
             }
         }
 
@@ -79,7 +80,7 @@ namespace HandySLAM {
 
         static Dataloader* restart(void) {
             if(instance_ == nullptr) 
-                throw std::exception();
+                throw std::logic_error("Can only call Dataloader::restart after Dataloader::init.");
 
             return Initializer::loaders_[instance_->loaderName]();
         }
@@ -109,7 +110,7 @@ namespace HandySLAM {
         bool usingMono;
         bool saveVolume;
         double voxelSize;
-        double depthCutoff;
+        double maxDepth;
     private:
         int argc_;
         char** argv_;
