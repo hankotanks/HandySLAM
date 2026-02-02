@@ -101,17 +101,15 @@ fail:
 namespace HandySLAM {
     DataloaderStray::DataloaderStray(Initializer& init) : Dataloader(init.pathScene) {
         // parse args
-        std::string profileName;
-        bool upscaled;
+        std::string profileName = "iphone16pro";
         clipp::group options = clipp::group {
-            clipp::option("-p", "--profile").required(true).doc("name of the calibration profile") &
+            clipp::option("-p", "--profile").doc("name of the calibration profile") &
             clipp::value("profile_name", profileName, [&](const std::string& profileNameRaw) {
                 std::filesystem::path pathProfile = std::filesystem::path(PROJECT_ROOT) / "profiles";
                 std::filesystem::path pathTransform = pathProfile / (profileNameRaw + "-camchain-imucam.yaml");
                 std::filesystem::path pathNoise = pathProfile / (profileNameRaw + "-imu.yaml");
                 return std::filesystem::exists(pathTransform) && std::filesystem::exists(pathNoise);
-            }),
-            clipp::option("-u", "--upscaled").set(upscaled).doc("use larger depthmaps")
+            })
         };
         init.parse(options);
         // configure profile
@@ -135,7 +133,7 @@ namespace HandySLAM {
         frameIdx_ = 0;
         frameCount_ = static_cast<std::size_t>(cap_.get(cv::CAP_PROP_FRAME_COUNT));
         // depth/*
-        pathDepth_ = pathScene_ / (upscaled ? "depth_upscaled" : "depth");
+        pathDepth_ = pathScene_ / (init.upscale ? "depth_upscaled" : "depth");
         ASSERT_PATH_EXISTS(pathDepth_);
         // odometry.csv
         pathOdom_ = pathScene_ / "odometry.csv";

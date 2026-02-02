@@ -1,15 +1,17 @@
 #pragma once
 
+#include <complex>
 #include <stdexcept>
 #include <string>
-#include <exception>
 #include <filesystem>
+#include <cstdlib>
 
 #include <System.h>
 
 #include "clipp.h"
 
 #include "Dataloader.h"
+#include "util.h"
 
 namespace HandySLAM {
     class Initializer {
@@ -22,6 +24,7 @@ namespace HandySLAM {
         Initializer(int argc, char* argv[]) : 
             argc_(argc), argv_(argv), 
             usingImu(false), usingMono(false), 
+            upscale(false),
             saveVolume(false), voxelSize(0.01), maxDepth(4.0) {
             std::string loaderDoc = "must be one of [";
             std::size_t i = 0;
@@ -42,6 +45,7 @@ namespace HandySLAM {
             clipp::parsing_result res = clipp::parse(std::min(argc_, 3), argv_, cli_);
             cli_.push_back(clipp::option("--imu").set(usingImu).doc("enable IMU-integration"));
             cli_.push_back(clipp::option("--mono").set(usingMono).doc("use only color imagery"));
+            cli_.push_back(clipp::option("--upscale").set(upscale).doc("upscale depth imagery with PrompDA"));
             cli_.push_back(clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume"));
             cli_.push_back(clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize)),
             cli_.push_back(clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth));
@@ -67,6 +71,22 @@ namespace HandySLAM {
         static Dataloader* init(int argc, char* argv[]) {
             try {
                 instance_ = new Initializer(argc, argv);
+                if(instance_->upscale) {
+                    std::filesystem::path pathRoot(PROJECT_ROOT);
+                    std::filesystem::path pathPython = pathRoot / "env" / "bin" / "python3";
+                    ASSERT_PATH_EXISTS(pathPython);
+                    std::filesystem::path pathPrompt = pathRoot / "PromptDA";
+                    ASSERT_PATH_EXISTS(pathPrompt);
+                    
+                    std::string command = "cd \"" + pathPrompt.string() + "\" && " + \
+                        "\"" + pathPython.string() + "\" -m promptda.scripts.infer " + instance_->loaderName + " " + instance_->pathScene.string();
+                        
+                    int exitCode = std::system(command.c_str());
+                    if(exitCode != 0) {
+                        log_err("Failed to upscale, reverting to original depth resolution");
+                        instance_->upscale = false;
+                    }
+                }
             } catch(...) {
                 if(instance_ != nullptr) {
                     std::cout << clipp::usage_lines(instance_->cli_, instance_->argv_[0]) << std::endl;
@@ -108,6 +128,7 @@ namespace HandySLAM {
         std::filesystem::path pathScene;
         bool usingImu;
         bool usingMono;
+        bool upscale;
         bool saveVolume;
         double voxelSize;
         double maxDepth;

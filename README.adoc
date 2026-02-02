@@ -1,9 +1,9 @@
 == HandySLAM
 
 Perform offline SLAM on RGBD sequences recorded with LiDAR-capable smartphones.
-This project contains a data loader for scenes recorded with the 
-https://github.com/strayrobots/scanner[Stray Scanner] app on iOS devices,
-and a number of helper scripts for smartphone calibration with https://github.com/ethz-asl/kalibr[Kalibr].
+This project contains data loaders for scenes recorded with the 
+https://github.com/strayrobots/scanner[Stray Scanner] app as well as those from the https://scannetpp.mlsg.cit.tum.de/scannetpp[ScanNet++] dataset.
+Additionally, a number of helper scripts for IMU calibration with https://github.com/ethz-asl/kalibr[Kalibr].
 
 === Setup
 
@@ -13,18 +13,36 @@ This project was developed and tested only on Debian GNU/Linux 12 (bookworm) and
 [source,sh]
 ----
 #!/bin/bash
-sudo apt-get install libopencv-dev
 git clone https://github.com/hankotanks/HandySLAM.git
+cd HandySLAM
+# create a python environment for dependencies (optional)
+python3 -m venv ./env
+source ./env/bin/activate
+# build the project
 chmod +x build.sh
 ./build.sh
-# building HandySLAM
-make -C build
 ----
+
+=== Usage
+
+Once the project is built, scenes from both Stray and ScanNet++ can be processed.
+For improved localization and mapping, the scenes should be upscaled using PromptDA.
+If upscaling is performed, the `[--upscaled]` flag must be passed to `HandySLAM`.
+
+NOTE: If a Python environment was active when building the project,
+it must also be active when running PromptDA
+
+[source,sh]
+----
+#!/bin/bash
+./HandySLAM stray /path/to/scene --upscale
+----
+
 
 === Calibration
 
 HandySLAM requires a calibration profile for the device used
-to record RGBD scenes. A basic calibration for an iPhone 16 Pro is given in `/profiles`.
+to record RGBD scenes. A standard calibration for an iPhone 16 Pro is given in `/profiles`.
 This profile should give fairly accurate results for all scans taken with the same model of iPhone.
 
 If you have a different device, or would prefer device-specific extrinsics, 
