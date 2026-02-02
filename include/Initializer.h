@@ -46,7 +46,7 @@ namespace HandySLAM {
                 clipp::option("--mono").set(usingMono).doc("use only color imagery"),
                 clipp::option("--upscale").set(upscale).doc("upscale depth imagery with PrompDA"),
                 clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume") & 
-                    clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize),
+                    clipp::group { clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize) },
                 clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth)
             };
             

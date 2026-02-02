@@ -26,7 +26,7 @@ chmod +x build.sh
 ----
 SYNOPSIS
     ./build/HandySLAM <loader> <scene_path> [--imu] [--mono] [--upscale] 
-        [-o [--voxel-length] <size>] [--max-depth <threshold>]
+        [-o [--voxel-length <size>]] [--max-depth <threshold>]
 
 OPTIONS
     <loader>         must be one of [scannetpp, stray]
@@ -50,6 +50,8 @@ For improved localization and mapping, scenes should be upscaled using PromptDA.
 
 By default, `trajectory.txt` is generated at the `<scene-path>`.
 If `--out` is supplied to HandySLAM, a PLY file is saved to the same location, containing a TSDF volume mesh.
+
+For loader-specific CLI arguments, provide `--help` after the loader. For example, `./HandySLAM stray --help`.
 
 === Calibration
 
