@@ -19,13 +19,6 @@ namespace {
 
 namespace HandySLAM {
     DataloaderScanNet::DataloaderScanNet(Initializer& init) : Dataloader(init.pathScene) {
-        // parse args
-        bool upscaled = false;
-        clipp::group options = clipp::group {
-            clipp::option("-u", "--upscaled").set(upscaled).doc("use larger depthmaps")
-        };
-        init.parse(options);
-
         // set frame index
         frameIdx_ = 0;
 
@@ -38,7 +31,7 @@ namespace HandySLAM {
         pathRGB_ = pathData / "rgb.mkv";
         ASSERT_PATH_EXISTS(pathRGB_);
 
-        pathDepth_ = upscaled ? std::filesystem::path(pathData / "depth_upscaled") : (pathData / "depth.bin");
+        pathDepth_ = init.upscale ? std::filesystem::path(pathData / "depth_upscaled") : (pathData / "depth.bin");
         ASSERT_PATH_EXISTS(pathDepth_);
 
         std::filesystem::path pathColmap = pathData / "colmap";

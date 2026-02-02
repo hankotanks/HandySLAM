@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
         }
         std::filesystem::path pathTraj = HandySLAM::Initializer::get().pathScene / "trajectory.txt";
         SLAM.SaveTrajectoryTUM(pathTraj);
-        std::cout << "Saved trjactory to " << pathTraj << std::endl;
+        std::cout << "Saved trajectory to " << pathTraj << std::endl;
         // save a TSDF volume if it was requested
         if(init.saveVolume) {
             data = HandySLAM::Initializer::restart();
@@ -78,4 +78,3 @@ int main(int argc, char* argv[]) {
     }
     return 0;
 }
-
