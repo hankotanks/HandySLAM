@@ -55,6 +55,9 @@ For loader-specific CLI arguments, provide `--help` after the loader. For exampl
 
 === Calibration
 
+NOTE: Unless visual-inertial SLAM is being performed (`--imu`), this section can be safely ignored. 
+All dataloaders assume perfect alignment between the LiDAR and camera when no profile is specified.
+
 HandySLAM requires a calibration profile for the device used
 to record RGBD scenes. A default calibration for an iPhone 16 Pro is given in `/profiles`.
 This profile should give fairly accurate results for all scans taken with the same model of iPhone.
