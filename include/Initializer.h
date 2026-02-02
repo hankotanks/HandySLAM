@@ -41,14 +41,15 @@ namespace HandySLAM {
                 clipp::value("scene_path", pathSceneRaw_, [&](const std::string& pathSceneRaw) {
                     pathScene = std::move(std::filesystem::path(pathSceneRaw));
                     return std::filesystem::exists(pathScene);
-                }).doc("path to scene folder")
+                }).doc("path to scene folder"),
+                clipp::option("--imu").set(usingImu).doc("enable IMU-integration"),
+                clipp::option("--mono").set(usingMono).doc("use only color imagery"),
+                clipp::option("--upscale").set(upscale).doc("upscale depth imagery with PrompDA"),
+                clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume") & 
+                    clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize),
+                clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth)
             };
-            cli_.push_back(clipp::option("--imu").set(usingImu).doc("enable IMU-integration"));
-            cli_.push_back(clipp::option("--mono").set(usingMono).doc("use only color imagery"));
-            cli_.push_back(clipp::option("--upscale").set(upscale).doc("upscale depth imagery with PrompDA"));
-            cli_.push_back(clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume"));
-            cli_.push_back(clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize)),
-            cli_.push_back(clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth));
+            
             clipp::parsing_result res = clipp::parse(argc, argv_, cli_);
             if(!res) {
                 std::cout << clipp::make_man_page(cli_, argv_[0]) << std::endl;

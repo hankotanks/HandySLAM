@@ -7,7 +7,7 @@ Additionally, a number of helper scripts for IMU calibration with https://github
 
 === Setup
 
-HandySLAM is setup using a Bash script as shown below.
+HandySLAM is configured and built using `build.sh` as shown below.
 This project was developed and tested only on Debian GNU/Linux 12 (bookworm) and Ubuntu 24.04.3 LTS.
 
 [source,sh]
@@ -15,9 +15,6 @@ This project was developed and tested only on Debian GNU/Linux 12 (bookworm) and
 #!/bin/bash
 git clone https://github.com/hankotanks/HandySLAM.git
 cd HandySLAM
-# create a python environment for dependencies (optional)
-python3 -m venv ./env
-source ./env/bin/activate
 # build the project
 chmod +x build.sh
 ./build.sh
@@ -25,24 +22,39 @@ chmod +x build.sh
 
 === Usage
 
-Once the project is built, scenes from both Stray and ScanNet++ can be processed.
-For improved localization and mapping, the scenes should be upscaled using PromptDA.
-If upscaling is performed, the `[--upscaled]` flag must be passed to `HandySLAM`.
+[verbatim]
+----
+SYNOPSIS
+    ./build/HandySLAM <loader> <scene_path> [--imu] [--mono] [--upscale] 
+        [-o [--voxel-length] <size>] [--max-depth <threshold>]
 
-NOTE: If a Python environment was active when building the project,
-it must also be active when running PromptDA
+OPTIONS
+    <loader>         must be one of [scannetpp, stray]
+    <scene_path>     path to scene folder
+    --imu            enable IMU-integration
+    --mono           use only color imagery
+    --upscale        upscale depth imagery with PrompDA
+    -o, --out        save TSDF volume
+    --voxel-length   TSDF volume's voxel length (in meters)
+    --max-depth      depth threshold
+----
+
+Once the project is built, scenes from both Stray and ScanNet++ can be processed.
+For improved localization and mapping, scenes should be upscaled using PromptDA.
 
 [source,sh]
 ----
 #!/bin/bash
-./HandySLAM stray /path/to/scene --upscale
+./HandySLAM stray /path/to/scene --upscale --out
 ----
 
+By default, `trajectory.txt` is generated at the `<scene-path>`.
+If `--out` is supplied to HandySLAM, a PLY file is saved to the same location, containing a TSDF volume mesh.
 
 === Calibration
 
 HandySLAM requires a calibration profile for the device used
-to record RGBD scenes. A standard calibration for an iPhone 16 Pro is given in `/profiles`.
+to record RGBD scenes. A default calibration for an iPhone 16 Pro is given in `/profiles`.
 This profile should give fairly accurate results for all scans taken with the same model of iPhone.
 
 If you have a different device, or would prefer device-specific extrinsics, 
@@ -69,22 +81,4 @@ chmod +x ./scripts/calibrate_stray_with_aprilgrid.sh
 # Below: calibrate using a Stray scene of a 6x6 april grid with 3.9cm tags spaced 9mm apart
 # the final 4 parameters are IMU noise parameters
 ./scripts/calibrate_stray_with_aprilgrid.sh ../1db4db4bec/1db4db4bec/ iphone16pro 6 6 0.039 0.009 1.4e-2 2.5e-3 5.1e-3 5e-4
-----
-
-=== Localization
-
-Once you have a suitable calibration profile, you can process a scene.
-Currently, The https://github.com/strayrobots/scanner[Stray Scanner] app is the only supported method of
-recording scenes for HandySLAM.
-
-[source,sh]
-----
-#!/bin/bash
-# uncompress the scene
-tar -xzvf 1db4db4bec.tar.gz --strip-components=1
-cd HandySLAM
-# run SLAM
-./build/HandySLAM ../1db4db4bec iphone16pro
-# dump trajectory
-cat ../1db4db4bec/trajectory.txt
 ----
