@@ -44,6 +44,10 @@ add_executable(HandySLAM
 target_compile_definitions(HandySLAM PRIVATE 
     PROJECT_ROOT="${PROJECT_SOURCE_DIR}")
 
+target_compile_options(HandySLAM PUBLIC
+    -Wno-unused-variable
+    -Wno-deprecated-declarations)
+
 set(VOCAB_PATH "${PROJECT_SOURCE_DIR}/ORB_SLAM3/Vocabulary/ORBvoc.txt")
 set(PROJECT_ROOT "${PROJECT_SOURCE_DIR}")
 configure_file(Config.h.in ${PROJECT_BINARY_DIR}/Config.h @ONLY)

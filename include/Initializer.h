@@ -1,6 +1,7 @@
 #pragma once
 
 #include <complex>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <filesystem>
@@ -42,13 +43,13 @@ namespace HandySLAM {
                     return std::filesystem::exists(pathScene);
                 }).doc("path to scene folder")
             };
-            clipp::parsing_result res = clipp::parse(std::min(argc_, 3), argv_, cli_);
             cli_.push_back(clipp::option("--imu").set(usingImu).doc("enable IMU-integration"));
             cli_.push_back(clipp::option("--mono").set(usingMono).doc("use only color imagery"));
             cli_.push_back(clipp::option("--upscale").set(upscale).doc("upscale depth imagery with PrompDA"));
             cli_.push_back(clipp::option("-o", "--out").set(saveVolume).doc("save TSDF volume"));
             cli_.push_back(clipp::option("--voxel-length").doc("TSDF volume's voxel length (in meters)") & clipp::value("size", voxelSize)),
             cli_.push_back(clipp::option("--max-depth").doc("depth threshold for TSDF") &clipp::value("threshold", maxDepth));
+            clipp::parsing_result res = clipp::parse(argc, argv_, cli_);
             if(!res) {
                 std::cout << clipp::make_man_page(cli_, argv_[0]) << std::endl;
                 throw std::runtime_error("Failed to parse CLI arguments.");
@@ -77,14 +78,15 @@ namespace HandySLAM {
                     ASSERT_PATH_EXISTS(pathPython);
                     std::filesystem::path pathPrompt = pathRoot / "PromptDA";
                     ASSERT_PATH_EXISTS(pathPrompt);
+                    std::filesystem::path pathSceneAbs = std::filesystem::absolute(instance_->pathScene);
+                    ASSERT_PATH_EXISTS(pathSceneAbs);
                     
                     std::string command = "cd \"" + pathPrompt.string() + "\" && " + \
-                        "\"" + pathPython.string() + "\" -m promptda.scripts.infer " + instance_->loaderName + " " + instance_->pathScene.string();
-                        
-                    int exitCode = std::system(command.c_str());
-                    if(exitCode != 0) {
-                        log_err("Failed to upscale, reverting to original depth resolution");
-                        instance_->upscale = false;
+                        "\"" + pathPython.string() + "\" -m promptda.scripts.infer " + instance_->loaderName + " " + pathSceneAbs.string();
+
+                    if(std::system(command.c_str()) != 0) {
+                        log_err("Failed to infer upscaled depth using PromptDA.");
+                        throw std::exception();
                     }
                 }
             } catch(...) {
